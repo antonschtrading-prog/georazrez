@@ -1,73 +1,35 @@
-# React + TypeScript + Vite
+# ГеоРазрез — прототип 0.1
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Локальный инженерный редактор геологического разреза на реальных данных из DXF и ведомости оси.
 
-Currently, two official plugins are available:
+## Возможности
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- просмотр разреза с масштабированием, панорамой и выбором скважин;
+- 98 геометрических колонок и 339 проверенных строк демонстрационного проекта;
+- связанные список скважин, свойства, подошвы слоёв и панель проблем;
+- ручное разрешение неоднозначных ИГЭ, редактирование глубин и имён;
+- локальный импорт DXF/XLSX;
+- автосохранение проекта в IndexedDB текущего браузера;
+- экспорт XLSX с листами «Геология», «Контроль колонок», «Журнал»;
+- выгрузка проекта в JSON.
 
-## React Compiler
+## Запуск
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Сборка:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+## Границы прототипа
+
+Это frontend-only прототип. Данные не синхронизируются между устройствами; очистка данных браузера удаляет локально сохранённый проект. Для переноса используйте экспорт файла проекта JSON.
+
+Геологическое ядро рассчитано на текущий стандарт оформления исходного DXF. Неоднозначные и ненайденные ИГЭ не подставляются автоматически. Демонстрационный проект использует подтверждённое ручное исключение подписи 0,31 по handle 3034B; новый импорт выполняется без этого исключения.
+
+AutoCAD, Excel, облачные API и платные компоненты не требуются.
