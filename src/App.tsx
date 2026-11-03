@@ -65,6 +65,7 @@ export default function App() {
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
+  const reviewedCount = activeColumns.filter(column => column.isReviewed).length
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
 
   const commitProject = (updater: (current: GeoProject) => GeoProject) => {
@@ -140,7 +141,7 @@ export default function App() {
     const previousName = selected.name
     commitProject(current => addActivity({
       ...current,
-      columns: current.columns.map(column => column.id === selected.id ? { ...column, name, sourceNamed: name.trim().length > 0 } : column)
+      columns: current.columns.map(column => column.id === selected.id ? { ...column, name, sourceNamed: name.trim().length > 0, isReviewed: false, reviewedAt: '' } : column)
     }, `Скважина №${selected.index}: наименование изменено с «${previousName}» на «${name.trim() || 'без имени'}»`))
   }
 
@@ -160,7 +161,9 @@ export default function App() {
       ...current,
       columns: current.columns.map(column => column.id === selected.id ? {
         ...column,
-        layers: column.layers.map(layer => layer.id === layerId ? { ...layer, depth, y: column.top - depth * 10 } : layer)
+        isReviewed: false,
+        reviewedAt: '',
+        layers: column.layers.map(layer => layer.id === layerId ? { ...layer, depth, y: column.top - depth * 10, depthSource: 'manual' } : layer)
       } : column)
     }, `${selected.name}: глубина слоя ${index + 1} изменена с ${String(oldDepth).replace('.', ',')} на ${String(depth).replace('.', ',')} м`))
     toast.success('Глубина обновлена')
@@ -174,6 +177,8 @@ export default function App() {
       ...current,
       columns: current.columns.map(column => column.id === selected.id ? {
         ...column,
+        isReviewed: false,
+        reviewedAt: '',
         layers: column.layers.map(item => item.id === layerId ? {
           ...item, ige: code, status: status || (code ? 'manual' : 'not-found'), source: code ? 'Ручное подтверждение' : 'Требует проверки'
         } : item)
@@ -199,7 +204,8 @@ export default function App() {
       ige: code,
       status: code ? 'manual' : 'not-found',
       candidates: [],
-      source: code ? 'Ручное добавление' : 'Новый слой: требуется ИГЭ'
+      source: code ? 'Ручное добавление' : 'Новый слой: требуется ИГЭ',
+      depthSource: 'manual'
     }
     commitProject(current => addActivity({
       ...current,
@@ -207,7 +213,7 @@ export default function App() {
         if (column.id !== selected.id) return column
         const layers = [...column.layers]
         layers.splice(insertionIndex, 0, layer)
-        return { ...column, layers }
+        return { ...column, layers, isReviewed: false, reviewedAt: '' }
       })
     }, `${selected.name}: добавлена подошва ${String(depth).replace('.', ',')} м${code ? `, ИГЭ ${code}` : ', код ИГЭ требует проверки'}`))
     setSelectedLayerId(newId)
@@ -224,11 +230,29 @@ export default function App() {
       ...current,
       columns: current.columns.map(column => column.id === selected.id ? {
         ...column,
+        isReviewed: false,
+        reviewedAt: '',
         layers: column.layers.filter(layer => layer.id !== layerId)
       } : column)
     }, `${selected.name}: удалена подошва ${String(removed.depth).replace('.', ',')} м${removed.ige ? `, ИГЭ ${removed.ige}` : ''}`))
     setSelectedLayerId(nextSelected)
     toast.success('Подошва удалена; действие можно отменить')
+  }
+
+  const toggleSelectedReviewed = () => {
+    if (!project || !selected || selected.isExcluded) return
+    const hasIssues = issues.some(issue => issue.boreholeId === selected.id)
+    if (!selected.isReviewed && hasIssues) {
+      toast.error('Сначала решите все проблемы этой скважины')
+      return
+    }
+    const reviewing = !selected.isReviewed
+    const reviewedAt = reviewing ? new Date().toLocaleString('ru-RU') : ''
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? { ...column, isReviewed: reviewing, reviewedAt } : column)
+    }, reviewing ? `${selected.name}: проверка подтверждена инженером` : `${selected.name}: подтверждение проверки снято`))
+    toast.success(reviewing ? 'Скважина отмечена как проверенная' : 'Скважина возвращена на проверку')
   }
 
   const toggleSelectedExcluded = (reason: string) => {
@@ -239,7 +263,9 @@ export default function App() {
       columns: current.columns.map(column => column.id === selected.id ? {
         ...column,
         isExcluded: excluding,
-        exclusionReason: excluding ? reason : ''
+        exclusionReason: excluding ? reason : '',
+        isReviewed: false,
+        reviewedAt: ''
       } : column)
     }, excluding ? `${selected.name}: исключена из расчёта. Причина: ${reason}` : `${selected.name}: возвращена в расчёт`))
     setSelectedLayerId(null)
@@ -325,20 +351,20 @@ export default function App() {
             <div><strong>{activeColumns.length}</strong><span>в расчёте · {project.columns.length} в DXF</span></div>
             <div><strong>{layerCount}</strong><span>подошв слоёв</span></div>
             <div className="metric-warning"><strong>{issues.filter(i => i.kind === 'ambiguous-code').length}</strong><span>неоднозначных ИГЭ</span></div>
-            <div><strong>{project.columns.filter(c => c.sourceNamed).length}</strong><span>имён из DXF</span></div>
+            <div><strong>{reviewedCount}</strong><span>проверено · {project.columns.filter(c => c.sourceNamed).length} имён DXF</span></div>
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
           <IssueDock issues={issues} activity={project.activity} activeIssueId={activeIssueId} onSelect={selectIssue} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.4</span>
+        <span>Прототип 0.5</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

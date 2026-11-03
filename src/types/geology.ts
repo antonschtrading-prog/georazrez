@@ -15,6 +15,7 @@ export interface Layer {
   status: CodeStatus
   candidates: CodeCandidate[]
   source: string
+  depthSource?: 'dxf' | 'manual'
 }
 
 export interface ExcludedLabel {
@@ -39,6 +40,8 @@ export interface Borehole {
   excluded: ExcludedLabel[]
   isExcluded?: boolean
   exclusionReason?: string
+  isReviewed?: boolean
+  reviewedAt?: string
 }
 
 export interface GeoSegment {

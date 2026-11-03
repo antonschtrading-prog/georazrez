@@ -68,7 +68,8 @@ export async function createProjectFromFiles(dxfFile: File, axisFile: File): Pro
         ige: layer.ige,
         status: layer.status,
         candidates: layer.candidates,
-        source: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки'
+        source: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки',
+        depthSource: 'dxf'
       })),
       excluded: result.depths[i].excluded.map((e: any) => ({ text: e.text, handle: e.handle, reason: e.reason }))
     }
@@ -112,6 +113,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ПК', key: 'pk', width: 16 },
     { header: 'Наименование скважины', key: 'name', width: 28 },
     { header: 'Глубина подошвы слоя, м', key: 'depth', width: 24 },
+    { header: 'Источник глубины', key: 'depthSource', width: 24 },
     { header: 'Код ИГЭ', key: 'ige', width: 14 },
     { header: 'X', key: 'x', width: 18 },
     { header: 'Y', key: 'y', width: 18 },
@@ -122,14 +124,15 @@ export async function exportWorkbook(project: GeoProject) {
     if (column.isExcluded) continue
     for (const layer of column.layers) {
       sheet.addRow({
-        pk: formatPk(column.pk), name: column.name, depth: layer.depth, ige: layer.ige,
-        x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
+        pk: formatPk(column.pk), name: column.name, depth: layer.depth,
+        depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
+        ige: layer.ige, x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
       })
     }
   }
   sheet.getRow(1).font = { bold: true }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.autoFilter = { from: 'A1', to: 'H1' }
+  sheet.autoFilter = { from: 'A1', to: 'I1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')
@@ -141,6 +144,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Требуют проверки', key: 'issues', width: 20 },
     { header: 'Источник имени', key: 'named', width: 22 },
     { header: 'В расчёте', key: 'included', width: 16 },
+    { header: 'Проверка завершена', key: 'reviewed', width: 22 },
+    { header: 'Дата подтверждения', key: 'reviewedAt', width: 24 },
     { header: 'Причина исключения', key: 'reason', width: 42 }
   ]
   for (const column of project.columns) {
@@ -149,6 +154,8 @@ export async function exportWorkbook(project: GeoProject) {
       issues: column.isExcluded ? 0 : column.layers.filter(l => l.status === 'ambiguous' || l.status === 'not-found').length + (column.sourceNamed ? 0 : 1),
       named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
       included: column.isExcluded ? 'Нет' : 'Да',
+      reviewed: column.isReviewed && !column.isExcluded ? 'Да' : 'Нет',
+      reviewedAt: column.reviewedAt || '',
       reason: column.exclusionReason || ''
     })
   }

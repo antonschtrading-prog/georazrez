@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, ArchiveX, Check, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatPk, type Borehole, type CodeStatus } from '@/types/geology'
 
@@ -13,6 +13,7 @@ interface Props {
   onDepthChange: (layerId: string, depth: number) => void
   onCodeChange: (layerId: string, code: string, status?: CodeStatus) => void
   onToggleExcluded: (reason: string) => void
+  onToggleReviewed: () => void
 }
 
 const statusText: Record<CodeStatus, string> = {
@@ -23,7 +24,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded }: Props) {
+export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -33,6 +34,7 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
+  const hasIssues = !column.sourceNamed || column.layers.some(layer => layer.status === 'ambiguous' || layer.status === 'not-found')
 
   const insertionBounds = () => {
     const index = selectedLayer ? column.layers.findIndex(layer => layer.id === selectedLayer.id) : column.layers.length - 1
@@ -119,7 +121,8 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
                     <span className="layer-number">{index + 1}</span>
                     <input
                       key={`${layer.id}-${layer.depth}`}
-                      className="depth-input"
+                      className={`depth-input ${layer.depthSource === 'manual' ? 'manual-depth' : ''}`}
+                      title={layer.depthSource === 'manual' ? 'Глубина изменена вручную' : 'Глубина из исходного DXF'}
                       defaultValue={String(layer.depth).replace('.', ',')}
                       inputMode="decimal"
                       aria-label={`Глубина слоя ${index + 1}`}
@@ -168,6 +171,14 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
             <strong>{item.text}</strong><span>{item.reason}</span><code>handle {item.handle || '—'}</code>
           </div>)}
         </details>}
+
+        <section className="column-review-section verification-section">
+          <div className="verification-heading"><strong>Проверка скважины</strong><span className={column.isReviewed ? 'reviewed' : ''}>{column.isReviewed ? 'Подтверждена' : hasIssues ? 'Есть проблемы' : 'Готова к проверке'}</span></div>
+          <p>{column.isReviewed ? `Подтверждено ${column.reviewedAt}. Любая последующая правка снимет этот статус.` : hasIssues ? 'Сначала решите все вопросы по имени и кодам ИГЭ этой скважины.' : 'Подтвердите, что имя, глубины и коды ИГЭ проверены инженером.'}</p>
+          <button type="button" className="button secondary" disabled={disabled || (hasIssues && !column.isReviewed)} onClick={onToggleReviewed}>
+            {column.isReviewed ? <RotateCcw size={15} /> : <CheckCheck size={15} />}{column.isReviewed ? 'Повторить проверку' : 'Подтвердить проверку'}
+          </button>
+        </section>
 
         <section className="column-review-section">
           <strong>{column.isExcluded ? 'Вернуть геометрию в проект' : 'Решение по колонке'}</strong>
