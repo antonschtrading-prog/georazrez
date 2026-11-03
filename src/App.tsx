@@ -7,7 +7,7 @@ import { IssueDock } from '@/components/IssueDock'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
+import { createProjectFromFiles, downloadLabTemplate, exportProjectFile, exportWorkbook, addActivity, readLabWorkbook, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { getCodeSummary, getIgeKey, getIssues, getLabTestIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
@@ -347,6 +347,21 @@ export default function App() {
     })
   }
 
+  const importLabTests = async (code: string, file: File) => {
+    if (!project) return { count: 0, errors: ['Проект ещё не загружен.'] }
+    const result = await readLabWorkbook(file, project, code)
+    if (result.errors.length) return { count: 0, errors: result.errors }
+    updateLabTests(code, `ИГЭ ${code}: импортировано испытаний из XLSX — ${result.tests.length}; файл ${file.name}`, tests => [...tests, ...result.tests])
+    toast.success(`Из XLSX импортировано испытаний: ${result.tests.length}`)
+    return { count: result.tests.length, errors: [] }
+  }
+
+  const exportLabTemplate = async (code: string) => {
+    if (!project) return
+    await downloadLabTemplate(project, code)
+    toast.success(`Шаблон для ИГЭ ${code} сформирован`)
+  }
+
   const addLayer = (depth: number, code: string) => {
     if (!project || !selected || selected.isExcluded) return
     const insertionIndex = selectedLayer ? selected.layers.findIndex(layer => layer.id === selectedLayer.id) + 1 : selected.layers.length
@@ -518,13 +533,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLabImport={importLabTests} onLabTemplate={exportLabTemplate} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.13</span>
+        <span>Прототип 0.14</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

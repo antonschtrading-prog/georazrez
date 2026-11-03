@@ -332,6 +332,14 @@
 .lab-section .passport-heading h3 { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 600; }
 .lab-section > p { margin: 0 0 12px; color: var(--muted-text); font-size: 10px; line-height: 1.5; }
 .lab-add-button { width: 100%; min-height: 34px; font-size: 10px; }
+.lab-file-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 7px; }
+.lab-file-actions .button { min-width: 0; min-height: 32px; padding: 0 7px; font-size: 9px; }
+.lab-section > p.lab-import-note { margin: 8px 0 11px; font-size: 9px; }
+.lab-import-report { margin: 0 0 12px; padding: 10px; border: 1px solid oklch(52% .19 25 / .35); background: oklch(52% .19 25 / .05); color: var(--danger); font-size: 9px; line-height: 1.45; }
+.lab-import-report strong { display: block; margin-bottom: 5px; font-size: 10px; }
+.lab-import-report ol { margin: 0; padding-left: 18px; }
+.lab-import-report li + li { margin-top: 4px; }
+.lab-import-success { margin: 0 0 12px; padding: 9px 10px; border: 1px solid oklch(48% .12 116 / .35); color: var(--success); font-size: 9px; line-height: 1.45; }
 .lab-quality { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 12px 0 8px; background: var(--line); border: 1px solid var(--line); }
 .lab-quality > div { min-width: 0; padding: 9px 6px; background: var(--panel-bg); text-align: center; }
 .lab-quality strong { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; }

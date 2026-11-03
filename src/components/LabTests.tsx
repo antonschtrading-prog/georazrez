@@ -1,5 +1,5 @@
-import { useState, type FocusEvent } from 'react'
-import { AlertTriangle, FlaskConical, Plus, Trash2 } from 'lucide-react'
+import { useRef, useState, type FocusEvent } from 'react'
+import { AlertTriangle, FileDown, FlaskConical, LoaderCircle, Plus, Trash2, Upload } from 'lucide-react'
 import { getLabStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataIssue, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface BoreholeOption {
@@ -18,14 +18,20 @@ interface Props {
   onDelete: (code: string, testId: string) => void
   onTestChange: (code: string, testId: string, field: LabTestField, value: string | number | null) => void
   onValueChange: (code: string, testId: string, property: SoilCharacteristicKey, value: number | null) => void
+  onImport: (code: string, file: File) => Promise<{ count: number; errors: string[] }>
+  onTemplate: (code: string) => Promise<void>
 }
 
 const formatStatistic = (value: number | null) => value === null
   ? '—'
   : Number(value.toFixed(3)).toString().replace('.', ',')
 
-export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, onDelete, onTestChange, onValueChange }: Props) {
+export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, onDelete, onTestChange, onValueChange, onImport, onTemplate }: Props) {
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [importErrors, setImportErrors] = useState<string[]>([])
+  const [importMessage, setImportMessage] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
   const tests = passport?.labTests || []
   const statistics = getLabStatistics(passport)
   const affectedTestIds = new Set(issues.map(issue => issue.testId))
@@ -53,6 +59,31 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
     if (parsed !== previousValue) update(parsed)
   }
 
+  const importWorkbook = async (file: File) => {
+    setBusy(true)
+    setError('')
+    setImportErrors([])
+    setImportMessage('')
+    try {
+      const result = await onImport(code, file)
+      if (result.errors.length) setImportErrors(result.errors)
+      else setImportMessage(`Импортировано испытаний: ${result.count}. Принятые характеристики не изменены.`)
+    } catch (reason) {
+      setImportErrors([reason instanceof Error ? `Не удалось прочитать XLSX: ${reason.message}` : 'Не удалось прочитать XLSX-файл.'])
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createTemplate = async () => {
+    setBusy(true)
+    setImportErrors([])
+    setImportMessage('')
+    try { await onTemplate(code) }
+    catch (reason) { setImportErrors([reason instanceof Error ? `Не удалось создать шаблон: ${reason.message}` : 'Не удалось создать шаблон XLSX.']) }
+    finally { setBusy(false) }
+  }
+
   return <section className="lab-section" aria-label={`Лабораторные испытания ИГЭ ${code}`}>
     <div className="passport-heading">
       <div><span className="panel-kicker">ЛАБОРАТОРИЯ</span><h3>Испытания ИГЭ {code}</h3></div>
@@ -65,10 +96,22 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
       <div><strong>{issues.length}</strong><span>замечаний контроля</span></div>
     </div>
     <p className="lab-quality-note">Контроль проверяет полноту, ссылки и диапазон глубины. Достоверность физических значений оценивает инженер.</p>
-    <button type="button" className="button secondary lab-add-button" disabled={disabled} onClick={() => { setError(''); onAdd(code) }}>
+    <button type="button" className="button secondary lab-add-button" disabled={disabled || busy} onClick={() => { setError(''); setImportErrors([]); setImportMessage(''); onAdd(code) }}>
       <Plus size={14} /> Добавить испытание
     </button>
+    <div className="lab-file-actions">
+      <button type="button" className="button secondary" disabled={disabled || busy} onClick={createTemplate}><FileDown size={13} /> Шаблон XLSX</button>
+      <button type="button" className="button secondary" disabled={disabled || busy} onClick={() => fileInput.current?.click()}>{busy ? <LoaderCircle size={13} className="spin" /> : <Upload size={13} />} Импорт XLSX</button>
+    </div>
+    <input ref={fileInput} type="file" accept=".xlsx" hidden onChange={event => {
+      const file = event.target.files?.[0]
+      event.target.value = ''
+      if (file) void importWorkbook(file)
+    }} />
+    <p className="lab-import-note">Импорт добавляет образцы только к ИГЭ {code}. Файл принимается целиком: при ошибках новые строки не записываются.</p>
     {error && <div className="import-error characteristic-error" role="alert">{error}</div>}
+    {importErrors.length > 0 && <div className="lab-import-report" role="alert"><strong>Импорт не выполнен</strong><ol>{importErrors.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ol></div>}
+    {importMessage && <div className="lab-import-success" role="status">{importMessage}</div>}
 
     <div className="lab-test-list">
       {tests.map((test, testIndex) => {

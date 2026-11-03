@@ -19,6 +19,8 @@ interface Props {
   onLabTestDelete: (code: string, testId: string) => void
   onLabTestChange: (code: string, testId: string, field: LabTestField, value: string | number | null) => void
   onLabTestValueChange: (code: string, testId: string, property: SoilCharacteristicKey, value: number | null) => void
+  onLabImport: (code: string, file: File) => Promise<{ count: number; errors: string[] }>
+  onLabTemplate: (code: string) => Promise<void>
   onLayerSelect: (id: string) => void
   onLayerAdd: (depth: number, code: string) => void
   onLayerDelete: (layerId: string) => void
@@ -37,7 +39,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -323,6 +325,8 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
           onDelete={onLabTestDelete}
           onTestChange={onLabTestChange}
           onValueChange={onLabTestValueChange}
+          onImport={onLabImport}
+          onTemplate={onLabTemplate}
         />}
 
         {column.excluded.length > 0 && <details className="excluded-details">
