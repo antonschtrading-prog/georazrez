@@ -212,7 +212,7 @@
 .issue-row:hover { background: var(--gray-90); }
 .issue-row.active { background: oklch(96.8% .21 116 / .3); box-shadow: inset 2px 0 0 var(--accent-dark); }
 .issue-icon { flex: none; color: var(--warning); }
-.issue-icon.missing-code { color: var(--danger); }
+.issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order { color: var(--danger); }
 .issue-icon.missing-name { color: var(--info); }
 .issue-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-copy strong { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -274,6 +274,7 @@
 .depth-input:hover, .code-input:hover { border-color: var(--line); background: var(--panel-bg); }
 .depth-input:focus, .code-input:focus { outline: 0; border-color: var(--accent-dark); background: var(--panel-bg); }
 .depth-input.manual-depth { color: var(--info); border-bottom-color: var(--info); }
+.depth-input.depth-issue { color: var(--danger); border-bottom-color: var(--danger); background: oklch(52% .19 25 / .06); }
 .layer-thickness { color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-align: right; white-space: nowrap; }
 .code-input.needs-attention { color: var(--warning); border-bottom-color: var(--warning); }
 .layer-status { display: inline-flex; align-items: center; gap: 3px; color: var(--muted-text); font-size: 8px; white-space: nowrap; }
@@ -286,6 +287,18 @@
 .candidate-picker button { min-width: 38px; min-height: 27px; padding: 0 8px; border: 1px solid var(--warning); border-radius: 3px; background: var(--panel-bg); color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .candidate-picker button:hover { background: var(--accent-lime); border-color: var(--accent-dark); }
 .empty-layers { padding: 24px 18px; color: var(--muted-text); font-size: 11px; line-height: 1.5; text-align: center; }
+.neighbor-section { padding: 15px 16px 17px; border-top: 1px solid var(--line); }
+.neighbor-section .passport-heading h3 { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 600; }
+.neighbor-row { padding: 10px 0; border-top: 1px solid var(--gray-90); }
+.neighbor-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 3px 8px; }
+.neighbor-meta > span { grid-column: 1 / -1; color: var(--muted-text); font-size: 9px; }
+.neighbor-meta strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.neighbor-meta small { color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 9px; white-space: nowrap; }
+.neighbor-matches { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.neighbor-matches button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 9px; }
+.neighbor-matches button:hover { border-color: var(--accent-dark); background: var(--accent-lime); }
+.neighbor-matches > span { color: var(--muted-text); font-size: 10px; line-height: 1.45; }
+.neighbor-section > p { margin: 8px 0 0; color: var(--muted-text); font-size: 10px; line-height: 1.5; }
 .ige-passport-section { padding: 15px 16px 17px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .passport-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .passport-heading h3 { margin: 4px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; }

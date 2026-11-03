@@ -102,7 +102,7 @@ export interface GeoProject {
   activity: ActivityItem[]
 }
 
-export type IssueKind = 'missing-name' | 'ambiguous-code' | 'missing-code'
+export type IssueKind = 'missing-name' | 'ambiguous-code' | 'missing-code' | 'invalid-depth' | 'depth-order'
 
 export interface GeoIssue {
   id: string
@@ -124,6 +124,49 @@ export function formatPk(value: number) {
 
 export function getIgeKey(code: string): string {
   return code.trim().toLocaleUpperCase('ru-RU') || '__unassigned__'
+}
+
+export interface LayerNeighborMatch {
+  layerId: string
+  depth: number
+}
+
+export interface LayerNeighbor {
+  boreholeId: string
+  name: string
+  pk: number
+  matches: LayerNeighborMatch[]
+}
+
+export interface LayerNeighbors {
+  previous: LayerNeighbor | null
+  next: LayerNeighbor | null
+}
+
+export function getLayerNeighbors(project: GeoProject, boreholeId: string, layerId: string): LayerNeighbors {
+  const column = project.columns.find(item => item.id === boreholeId)
+  const layer = column?.layers.find(item => item.id === layerId)
+  if (!column || !layer || column.isExcluded || getIgeKey(layer.ige) === '__unassigned__') return { previous: null, next: null }
+  const key = getIgeKey(layer.ige)
+  const activeColumns = project.columns.filter(item => !item.isExcluded)
+  const index = activeColumns.findIndex(item => item.id === boreholeId)
+  const neighbor = (item: Borehole | undefined): LayerNeighbor | null => item ? {
+    boreholeId: item.id,
+    name: item.name,
+    pk: item.pk,
+    matches: item.layers.filter(candidate => getIgeKey(candidate.ige) === key).map(candidate => ({ layerId: candidate.id, depth: candidate.depth }))
+  } : null
+  return { previous: neighbor(activeColumns[index - 1]), next: neighbor(activeColumns[index + 1]) }
+}
+
+export type LayerDepthIssue = 'invalid-depth' | 'depth-order'
+
+export function getLayerDepthIssue(layers: Layer[], index: number): LayerDepthIssue | null {
+  const depth = layers[index]?.depth
+  if (!Number.isFinite(depth) || depth <= 0) return 'invalid-depth'
+  const previous = layers[index - 1]?.depth
+  if (previous !== undefined && Number.isFinite(previous) && depth <= previous) return 'depth-order'
+  return null
 }
 
 export interface CodeSummaryItem {
@@ -157,7 +200,22 @@ export function getIssues(project: GeoProject): GeoIssue[] {
         detail: 'Геометрия подтверждена. Назначьте имя вручную или оставьте объект на проверке.'
       })
     }
-    for (const layer of column.layers) {
+    for (const [layerIndex, layer] of column.layers.entries()) {
+      const depthIssue = getLayerDepthIssue(column.layers, layerIndex)
+      if (depthIssue) {
+        const depth = Number.isFinite(layer.depth) ? layer.depth.toFixed(2).replace('.', ',') : '—'
+        const previous = column.layers[layerIndex - 1]?.depth
+        issues.push({
+          id: `${depthIssue}-${layer.id}`,
+          kind: depthIssue,
+          boreholeId: column.id,
+          layerId: layer.id,
+          title: `${column.name} · ${depth} м`,
+          detail: depthIssue === 'invalid-depth'
+            ? 'Глубина подошвы должна быть положительным конечным числом'
+            : `Порядок подошв нарушен: предыдущая глубина ${(previous ?? 0).toFixed(2).replace('.', ',')} м`
+        })
+      }
       if (layer.status === 'ambiguous') {
         const candidates = [...new Set(layer.candidates.map(c => c.code))]
         issues.push({
@@ -196,7 +254,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     for (const [layerIndex, layer] of column.layers.entries()) {
       const rawCode = layer.ige.trim()
       const key = getIgeKey(rawCode)
-      const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+      const hasIssue = Boolean(getLayerDepthIssue(column.layers, layerIndex)) || layer.status === 'ambiguous' || layer.status === 'not-found'
       const thickness = getLayerThickness(column.layers, layerIndex)
       let group = groups.get(key)
       if (!group) {

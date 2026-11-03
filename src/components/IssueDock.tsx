@@ -42,6 +42,8 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <option value="all">Все проблемы</option>
               <option value="ambiguous-code">Неоднозначные ИГЭ</option>
               <option value="missing-code">ИГЭ не найден</option>
+              <option value="invalid-depth">Некорректная глубина</option>
+              <option value="depth-order">Порядок подошв</option>
               <option value="missing-name">Без имени</option>
             </select>
           </div>

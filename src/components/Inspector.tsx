@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { formatPk, getLayerThickness, type Borehole, type CodeStatus, type IgePassport } from '@/types/geology'
+import { formatPk, getLayerDepthIssue, getLayerThickness, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors } from '@/types/geology'
 
 interface Props {
   column: Borehole
   selectedLayerId: string | null
   igePassport: IgePassport | null
   igeLayerCount: number
+  layerNeighbors: LayerNeighbors
+  onNeighborSelect: (boreholeId: string, layerId: string) => void
   onPassportChange: (code: string, field: keyof IgePassport, value: string) => void
   onLayerSelect: (id: string) => void
   onLayerAdd: (depth: number, code: string) => void
@@ -27,7 +29,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, onPassportChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -38,7 +40,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
-  const hasIssues = !column.sourceNamed || column.layers.some(layer => layer.status === 'ambiguous' || layer.status === 'not-found')
+  const hasIssues = !column.sourceNamed || column.layers.some((layer, index) => getLayerDepthIssue(column.layers, index) || layer.status === 'ambiguous' || layer.status === 'not-found')
 
   const insertionBounds = () => {
     const index = selectedLayer ? column.layers.findIndex(layer => layer.id === selectedLayer.id) : column.layers.length - 1
@@ -69,6 +71,16 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
     onLayerAdd(Math.round(depth * 100) / 100, addCode.trim())
     setAddOpen(false)
   }
+
+  const renderNeighbor = (neighbor: LayerNeighbor | null, label: string) => <div className="neighbor-row">
+    <div className="neighbor-meta"><span>{label}</span><strong>{neighbor?.name || 'Нет активной скважины'}</strong>{neighbor && <small>ПК {formatPk(neighbor.pk)}</small>}</div>
+    <div className="neighbor-matches">
+      {neighbor?.matches.map(match => <button type="button" key={match.layerId} onClick={() => onNeighborSelect(neighbor.boreholeId, match.layerId)} aria-label={`Перейти к соседнему слою ${neighbor.name}, ${match.depth.toFixed(2).replace('.', ',')} м`}>
+        {passportCode} · {match.depth.toFixed(2).replace('.', ',')} м
+      </button>)}
+      {neighbor && !neighbor.matches.length && <span>Код у соседа не найден</span>}
+    </div>
+  </div>
 
   return (
     <aside className="inspector-panel" aria-label="Свойства скважины">
@@ -114,7 +126,9 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
           <div className="layer-rows">
             {column.layers.map((layer, index) => {
               const candidates = [...new Set(layer.candidates.map(c => c.code))]
-              const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+              const codeHasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+              const depthIssue = getLayerDepthIssue(column.layers, index)
+              const hasIssue = codeHasIssue || Boolean(depthIssue)
               const thickness = getLayerThickness(column.layers, index)
               return (
                 <div
@@ -126,8 +140,8 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
                     <span className="layer-number">{index + 1}</span>
                     <input
                       key={`${layer.id}-${layer.depth}`}
-                      className={`depth-input ${layer.depthSource === 'manual' ? 'manual-depth' : ''}`}
-                      title={layer.depthSource === 'manual' ? 'Глубина изменена вручную' : 'Глубина из исходного DXF'}
+                      className={`depth-input ${layer.depthSource === 'manual' ? 'manual-depth' : ''} ${depthIssue ? 'depth-issue' : ''}`}
+                      title={depthIssue === 'invalid-depth' ? 'Некорректная глубина подошвы' : depthIssue === 'depth-order' ? 'Глубина совпадает с предыдущей или нарушает порядок' : layer.depthSource === 'manual' ? 'Глубина изменена вручную' : 'Глубина из исходного DXF'}
                       defaultValue={String(layer.depth).replace('.', ',')}
                       inputMode="decimal"
                       aria-label={`Глубина слоя ${index + 1}`}
@@ -142,7 +156,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
                     />
                     <input
                       key={`${layer.id}-${layer.ige}-${layer.status}`}
-                      className={`code-input ${hasIssue ? 'needs-attention' : ''}`}
+                      className={`code-input ${codeHasIssue ? 'needs-attention' : ''}`}
                       defaultValue={layer.ige}
                       placeholder="—"
                       aria-label={`Код ИГЭ слоя ${index + 1}`}
@@ -170,6 +184,13 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
             {!column.layers.length && <div className="empty-layers">В колонке нет расчётных подошв.<br />Добавьте первый слой вручную.</div>}
           </div>
         </section>
+
+        {selectedLayer && passportCode && <section className="neighbor-section" aria-label={`Сопоставление ИГЭ ${passportCode} с соседями`}>
+          <div className="passport-heading"><div><span className="panel-kicker">СОПОСТАВЛЕНИЕ</span><h3>Соседние скважины</h3></div></div>
+          {renderNeighbor(layerNeighbors.previous, 'Предыдущая активная')}
+          {renderNeighbor(layerNeighbors.next, 'Следующая активная')}
+          <p>Отсутствие кода у соседа может быть выклиниванием и не считается ошибкой автоматически.</p>
+        </section>}
 
         {selectedLayer && passportCode && <section className="ige-passport-section" aria-label={`Паспорт ИГЭ ${passportCode}`}>
           <div className="passport-heading">
@@ -220,7 +241,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
 
         <section className="column-review-section verification-section">
           <div className="verification-heading"><strong>Проверка скважины</strong><span className={column.isReviewed ? 'reviewed' : ''}>{column.isReviewed ? 'Подтверждена' : hasIssues ? 'Есть проблемы' : 'Готова к проверке'}</span></div>
-          <p>{column.isReviewed ? `Подтверждено ${column.reviewedAt}. Любая последующая правка снимет этот статус.` : hasIssues ? 'Сначала решите все вопросы по имени и кодам ИГЭ этой скважины.' : 'Подтвердите, что имя, глубины и коды ИГЭ проверены инженером.'}</p>
+          <p>{column.isReviewed ? `Подтверждено ${column.reviewedAt}. Любая последующая правка снимет этот статус.` : hasIssues ? 'Сначала решите все вопросы по имени, глубинам и кодам ИГЭ этой скважины.' : 'Подтвердите, что имя, глубины и коды ИГЭ проверены инженером.'}</p>
           <button type="button" className="button secondary" disabled={disabled || (hasIssues && !column.isReviewed)} onClick={onToggleReviewed}>
             {column.isReviewed ? <RotateCcw size={15} /> : <CheckCheck size={15} />}{column.isReviewed ? 'Повторить проверку' : 'Подтвердить проверку'}
           </button>

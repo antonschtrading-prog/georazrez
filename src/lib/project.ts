@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getIgeKey, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLayerDepthIssue, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -115,6 +115,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Глубина подошвы слоя, м', key: 'depth', width: 24 },
     { header: 'Мощность слоя, м', key: 'thickness', width: 20 },
     { header: 'Источник глубины', key: 'depthSource', width: 24 },
+    { header: 'Контроль глубины', key: 'depthControl', width: 28 },
     { header: 'Код ИГЭ', key: 'ige', width: 14 },
     { header: 'Наименование ИГЭ', key: 'igeName', width: 30 },
     { header: 'Описание грунта', key: 'igeDescription', width: 52 },
@@ -127,10 +128,12 @@ export async function exportWorkbook(project: GeoProject) {
     if (column.isExcluded) continue
     for (const [layerIndex, layer] of column.layers.entries()) {
       const passport = project.igePassports?.[getIgeKey(layer.ige)]
+      const depthIssue = getLayerDepthIssue(column.layers, layerIndex)
       const row = sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth,
         thickness: getLayerThickness(column.layers, layerIndex),
         depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
+        depthControl: depthIssue === 'invalid-depth' ? 'Некорректная глубина' : depthIssue === 'depth-order' ? 'Порядок подошв нарушен' : 'ОК',
         ige: layer.ige, igeName: passport?.name || '', igeDescription: passport?.description || '',
         x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
       })
@@ -140,7 +143,7 @@ export async function exportWorkbook(project: GeoProject) {
   }
   sheet.getRow(1).font = { bold: true }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.autoFilter = { from: 'A1', to: 'L1' }
+  sheet.autoFilter = { from: 'A1', to: 'M1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
@@ -192,6 +195,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ПК', key: 'pk', width: 16 },
     { header: 'Слоёв', key: 'layers', width: 12 },
     { header: 'Требуют проверки', key: 'issues', width: 20 },
+    { header: 'Проблемы глубин', key: 'depthIssues', width: 20 },
     { header: 'Источник имени', key: 'named', width: 22 },
     { header: 'В расчёте', key: 'included', width: 16 },
     { header: 'Проверка завершена', key: 'reviewed', width: 22 },
@@ -199,9 +203,12 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Причина исключения', key: 'reason', width: 42 }
   ]
   for (const column of project.columns) {
+    const depthIssueCount = column.layers.reduce((sum, _layer, index) => sum + (getLayerDepthIssue(column.layers, index) ? 1 : 0), 0)
+    const codeIssueCount = column.layers.filter(layer => layer.status === 'ambiguous' || layer.status === 'not-found').length
     control.addRow({
       index: column.index, name: column.name, pk: formatPk(column.pk), layers: column.layers.length,
-      issues: column.isExcluded ? 0 : column.layers.filter(l => l.status === 'ambiguous' || l.status === 'not-found').length + (column.sourceNamed ? 0 : 1),
+      issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (column.sourceNamed ? 0 : 1),
+      depthIssues: column.isExcluded ? 0 : depthIssueCount,
       named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
       included: column.isExcluded ? 'Нет' : 'Да',
       reviewed: column.isReviewed && !column.isExcluded ? 'Да' : 'Нет',
@@ -229,7 +236,11 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
   if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.columns) || !parsed.geometry || !Array.isArray(parsed.geometry.segments)) {
     throw new Error('Структура проекта не поддерживается этой версией программы')
   }
-  if (!parsed.columns.length || parsed.columns.some(column => !column.id || !Array.isArray(column.layers))) {
+  if (!parsed.columns.length || parsed.columns.some(column =>
+    !column.id || !Array.isArray(column.layers) || column.layers.some(layer =>
+      !layer || typeof layer.id !== 'string' || typeof layer.depth !== 'number'
+    )
+  )) {
     throw new Error('В проекте повреждены данные скважин')
   }
   if (parsed.igePassports !== undefined && (

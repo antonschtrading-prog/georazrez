@@ -9,7 +9,7 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getCodeSummary, getIgeKey, getIssues, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer } from '@/types/geology'
+import { getCodeSummary, getIgeKey, getIssues, getLayerNeighbors, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -75,6 +75,9 @@ export default function App() {
   const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
     ? project.columns.reduce((sum, column) => sum + column.layers.filter(layer => getIgeKey(layer.ige) === activeCodeKey).length, 0)
     : 0
+  const selectedNeighbors: LayerNeighbors = project && selected && selectedLayer
+    ? getLayerNeighbors(project, selected.id, selectedLayer.id)
+    : { previous: null, next: null }
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
@@ -135,13 +138,15 @@ export default function App() {
     setFocusToken(value => value + 1)
   }
 
-  const selectCodeSummary = (item: CodeSummaryItem) => {
-    const issueIndex = issues.findIndex(issue => issue.boreholeId === item.boreholeId && issue.layerId === item.layerId)
+  const selectLayerLocation = (boreholeId: string, layerId: string) => {
+    const issueIndex = issues.findIndex(issue => issue.boreholeId === boreholeId && issue.layerId === layerId)
     setReviewIndex(issueIndex >= 0 ? issueIndex : null)
-    setSelectedId(item.boreholeId)
-    setSelectedLayerId(item.layerId)
+    setSelectedId(boreholeId)
+    setSelectedLayerId(layerId)
     setFocusToken(value => value + 1)
   }
+
+  const selectCodeSummary = (item: CodeSummaryItem) => selectLayerLocation(item.boreholeId, item.layerId)
 
   const stepIssue = (direction: -1 | 1) => {
     if (!issues.length) return
@@ -394,13 +399,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} onPassportChange={changePassport} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.8</span>
+        <span>Прототип 0.9</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
