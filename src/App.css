@@ -286,6 +286,16 @@
 .candidate-picker button { min-width: 38px; min-height: 27px; padding: 0 8px; border: 1px solid var(--warning); border-radius: 3px; background: var(--panel-bg); color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .candidate-picker button:hover { background: var(--accent-lime); border-color: var(--accent-dark); }
 .empty-layers { padding: 24px 18px; color: var(--muted-text); font-size: 11px; line-height: 1.5; text-align: center; }
+.ige-passport-section { padding: 15px 16px 17px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.passport-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.passport-heading h3 { margin: 4px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; }
+.passport-heading > span { color: var(--muted-text); font-size: 9px; white-space: nowrap; }
+.ige-passport-section > p { margin: 0 0 13px; color: var(--muted-text); font-size: 10px; line-height: 1.5; }
+.ige-passport-section .field-label { margin-top: 11px; }
+.passport-textarea { width: 100%; min-height: 72px; resize: vertical; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-bg); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 11px; line-height: 1.45; }
+.passport-textarea.notes { min-height: 54px; }
+.passport-textarea:focus { outline: 0; border-color: var(--accent-dark); box-shadow: 0 0 0 1px var(--accent-dark); }
+.passport-textarea::placeholder { color: var(--muted-text); }
 .excluded-details { margin: 8px 16px 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .excluded-details summary { cursor: pointer; color: var(--muted-text); font-size: 10px; }
 .excluded-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--gray-90); }

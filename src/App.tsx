@@ -9,10 +9,15 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getCodeSummary, getIssues, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type Layer } from '@/types/geology'
+import { getCodeSummary, getIgeKey, getIssues, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
+const PASSPORT_FIELD_LABELS: Record<keyof IgePassport, string> = {
+  name: 'наименование',
+  description: 'описание грунта',
+  notes: 'примечание'
+}
 
 export default function App() {
   const [project, setProject] = useState<GeoProject | null>(null)
@@ -65,7 +70,11 @@ export default function App() {
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
-  const activeCodeKey = selectedLayer ? selectedLayer.ige.trim().toLocaleUpperCase('ru-RU') || '__unassigned__' : null
+  const activeCodeKey = selectedLayer ? getIgeKey(selectedLayer.ige) : null
+  const selectedPassport = activeCodeKey && activeCodeKey !== '__unassigned__' ? project?.igePassports?.[activeCodeKey] || null : null
+  const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
+    ? project.columns.reduce((sum, column) => sum + column.layers.filter(layer => getIgeKey(layer.ige) === activeCodeKey).length, 0)
+    : 0
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
@@ -195,6 +204,23 @@ export default function App() {
       } : column)
     }, `${selected.name}, ${String(layer.depth).replace('.', ',')} м: ИГЭ ${code || 'не задан'}`))
     if (code) toast.success(`ИГЭ ${code} подтверждён вручную`)
+  }
+
+  const changePassport = (code: string, field: keyof IgePassport, value: string) => {
+    const key = getIgeKey(code)
+    if (!project || key === '__unassigned__') return
+    commitProject(current => {
+      const previous = current.igePassports?.[key] || { name: '', description: '', notes: '' }
+      if (previous[field] === value) return current
+      return addActivity({
+        ...current,
+        igePassports: { ...current.igePassports, [key]: { ...previous, [field]: value } },
+        columns: current.columns.map(column => column.layers.some(layer => getIgeKey(layer.ige) === key)
+          ? { ...column, isReviewed: false, reviewedAt: '' }
+          : column)
+      }, `ИГЭ ${code}: изменено поле «${PASSPORT_FIELD_LABELS[field]}» паспорта`)
+    })
+    toast.success(`Паспорт ИГЭ ${code} обновлён`)
   }
 
   const addLayer = (depth: number, code: string) => {
@@ -368,13 +394,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} onPassportChange={changePassport} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.7</span>
+        <span>Прототип 0.8</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

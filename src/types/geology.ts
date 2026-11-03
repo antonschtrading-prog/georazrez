@@ -75,6 +75,12 @@ export interface ActivityItem {
   at: string
 }
 
+export interface IgePassport {
+  name: string
+  description: string
+  notes: string
+}
+
 export interface GeoProject {
   schemaVersion: 1
   id: string
@@ -92,6 +98,7 @@ export interface GeoProject {
     texts: GeoText[]
   }
   bounds: { minX: number; maxX: number; minY: number; maxY: number }
+  igePassports?: Record<string, IgePassport>
   activity: ActivityItem[]
 }
 
@@ -115,10 +122,15 @@ export function formatPk(value: number) {
   return `${sign}${km}+${meters.toFixed(2).padStart(5, '0')}`
 }
 
+export function getIgeKey(code: string): string {
+  return code.trim().toLocaleUpperCase('ru-RU') || '__unassigned__'
+}
+
 export interface CodeSummaryItem {
   key: string
   code: string
   variants: string[]
+  passportName: string
   layerCount: number
   boreholeCount: number
   minDepth: number
@@ -183,8 +195,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     if (column.isExcluded) continue
     for (const [layerIndex, layer] of column.layers.entries()) {
       const rawCode = layer.ige.trim()
-      const normalized = rawCode.toLocaleUpperCase('ru-RU')
-      const key = normalized || '__unassigned__'
+      const key = getIgeKey(rawCode)
       const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
       const thickness = getLayerThickness(column.layers, layerIndex)
       let group = groups.get(key)
@@ -193,6 +204,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
           key,
           code: rawCode || '—',
           variants: [],
+          passportName: project.igePassports?.[key]?.name.trim() || '',
           layerCount: 0,
           boreholeCount: 0,
           minDepth: layer.depth,
@@ -232,6 +244,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     key: group.key,
     code: group.variantSet.size === 1 ? [...group.variantSet][0] : group.code,
     variants: [...group.variantSet].sort((a, b) => a.localeCompare(b, 'ru')),
+    passportName: group.passportName,
     layerCount: group.layerCount,
     boreholeCount: group.boreholeIds.size,
     minDepth: group.minDepth,

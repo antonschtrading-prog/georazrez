@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -116,6 +116,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Мощность слоя, м', key: 'thickness', width: 20 },
     { header: 'Источник глубины', key: 'depthSource', width: 24 },
     { header: 'Код ИГЭ', key: 'ige', width: 14 },
+    { header: 'Наименование ИГЭ', key: 'igeName', width: 30 },
+    { header: 'Описание грунта', key: 'igeDescription', width: 52 },
     { header: 'X', key: 'x', width: 18 },
     { header: 'Y', key: 'y', width: 18 },
     { header: 'Статус проверки', key: 'status', width: 26 },
@@ -124,11 +126,13 @@ export async function exportWorkbook(project: GeoProject) {
   for (const column of project.columns) {
     if (column.isExcluded) continue
     for (const [layerIndex, layer] of column.layers.entries()) {
+      const passport = project.igePassports?.[getIgeKey(layer.ige)]
       const row = sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth,
         thickness: getLayerThickness(column.layers, layerIndex),
         depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
-        ige: layer.ige, x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
+        ige: layer.ige, igeName: passport?.name || '', igeDescription: passport?.description || '',
+        x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
       })
       row.getCell(3).numFmt = '0.00'
       row.getCell(4).numFmt = '0.00'
@@ -136,13 +140,16 @@ export async function exportWorkbook(project: GeoProject) {
   }
   sheet.getRow(1).font = { bold: true }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.autoFilter = { from: 'A1', to: 'J1' }
+  sheet.autoFilter = { from: 'A1', to: 'L1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
   codeSummary.columns = [
     { header: 'Код ИГЭ', key: 'code', width: 16 },
     { header: 'Варианты написания', key: 'variants', width: 32 },
+    { header: 'Наименование ИГЭ', key: 'passportName', width: 30 },
+    { header: 'Описание грунта', key: 'description', width: 52 },
+    { header: 'Примечание', key: 'notes', width: 42 },
     { header: 'Слоёв', key: 'layers', width: 12 },
     { header: 'Скважин', key: 'boreholes', width: 12 },
     { header: 'Мин. глубина, м', key: 'minDepth', width: 18 },
@@ -154,9 +161,13 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Нерешённых проблем', key: 'issues', width: 22 }
   ]
   for (const item of getCodeSummary(project)) {
+    const passport = project.igePassports?.[item.key]
     const row = codeSummary.addRow({
       code: item.code,
       variants: item.variants.join(' / '),
+      passportName: passport?.name || '',
+      description: passport?.description || '',
+      notes: passport?.notes || '',
       layers: item.layerCount,
       boreholes: item.boreholeCount,
       minDepth: item.minDepth,
@@ -167,11 +178,11 @@ export async function exportWorkbook(project: GeoProject) {
       manual: item.manualCount,
       issues: item.issueCount
     })
-    for (let columnIndex = 5; columnIndex <= 9; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
+    for (let columnIndex = 8; columnIndex <= 12; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'K1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'N1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')
@@ -220,6 +231,12 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
   }
   if (!parsed.columns.length || parsed.columns.some(column => !column.id || !Array.isArray(column.layers))) {
     throw new Error('В проекте повреждены данные скважин')
+  }
+  if (parsed.igePassports !== undefined && (
+    !parsed.igePassports || typeof parsed.igePassports !== 'object' || Array.isArray(parsed.igePassports) ||
+    Object.values(parsed.igePassports).some(passport => !passport || typeof passport.name !== 'string' || typeof passport.description !== 'string' || typeof passport.notes !== 'string')
+  )) {
+    throw new Error('В проекте повреждены паспорта ИГЭ')
   }
   return parsed
 }

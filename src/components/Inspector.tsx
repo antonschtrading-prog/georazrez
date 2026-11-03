@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { formatPk, getLayerThickness, type Borehole, type CodeStatus } from '@/types/geology'
+import { formatPk, getLayerThickness, type Borehole, type CodeStatus, type IgePassport } from '@/types/geology'
 
 interface Props {
   column: Borehole
   selectedLayerId: string | null
+  igePassport: IgePassport | null
+  igeLayerCount: number
+  onPassportChange: (code: string, field: keyof IgePassport, value: string) => void
   onLayerSelect: (id: string) => void
   onLayerAdd: (depth: number, code: string) => void
   onLayerDelete: (layerId: string) => void
@@ -24,7 +27,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, onPassportChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -34,6 +37,7 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
+  const passportCode = selectedLayer?.ige.trim() || ''
   const hasIssues = !column.sourceNamed || column.layers.some(layer => layer.status === 'ambiguous' || layer.status === 'not-found')
 
   const insertionBounds = () => {
@@ -166,6 +170,46 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
             {!column.layers.length && <div className="empty-layers">В колонке нет расчётных подошв.<br />Добавьте первый слой вручную.</div>}
           </div>
         </section>
+
+        {selectedLayer && passportCode && <section className="ige-passport-section" aria-label={`Паспорт ИГЭ ${passportCode}`}>
+          <div className="passport-heading">
+            <div><span className="panel-kicker">ПАСПОРТ ИГЭ</span><h3>{passportCode}</h3></div>
+            <span>{igeLayerCount} слоёв проекта</span>
+          </div>
+          <p>Общие сведения применяются ко всем слоям с этим кодом. Данные заполняются вручную, а не извлекаются из DXF.</p>
+          <label className="field-label" htmlFor="ige-passport-name">Наименование ИГЭ</label>
+          <input
+            key={`${passportCode}-name-${igePassport?.name || ''}`}
+            id="ige-passport-name"
+            className="name-input"
+            defaultValue={igePassport?.name || ''}
+            disabled={disabled}
+            onBlur={event => { if (event.target.value !== (igePassport?.name || '')) onPassportChange(passportCode, 'name', event.target.value) }}
+            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+          />
+          <label className="field-label" htmlFor="ige-passport-description">Описание грунта</label>
+          <textarea
+            key={`${passportCode}-description-${igePassport?.description || ''}`}
+            id="ige-passport-description"
+            className="passport-textarea"
+            rows={3}
+            defaultValue={igePassport?.description || ''}
+            disabled={disabled}
+            placeholder="Состав, состояние, включения и другие признаки"
+            onBlur={event => { if (event.target.value !== (igePassport?.description || '')) onPassportChange(passportCode, 'description', event.target.value) }}
+          />
+          <label className="field-label" htmlFor="ige-passport-notes">Примечание</label>
+          <textarea
+            key={`${passportCode}-notes-${igePassport?.notes || ''}`}
+            id="ige-passport-notes"
+            className="passport-textarea notes"
+            rows={2}
+            defaultValue={igePassport?.notes || ''}
+            disabled={disabled}
+            placeholder="Особые условия залегания или оговорки"
+            onBlur={event => { if (event.target.value !== (igePassport?.notes || '')) onPassportChange(passportCode, 'notes', event.target.value) }}
+          />
+        </section>}
 
         {column.excluded.length > 0 && <details className="excluded-details">
           <summary>Исключённые подписи <span>{column.excluded.length}</span></summary>

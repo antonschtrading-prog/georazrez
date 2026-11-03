@@ -74,7 +74,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <td>
                 <button type="button" className="code-summary-link" onClick={() => onSelectCode(item)} title="Перейти к слою этой группы" aria-label={`Перейти к слою с ИГЭ ${item.code}`}>
                   <strong>{item.code}</strong>
-                  {item.variants.length > 1 && <span>{item.variants.join(' / ')}</span>}
+                  {(item.passportName || item.variants.length > 1) && <span>{[item.passportName, item.variants.length > 1 ? `Варианты: ${item.variants.join(' / ')}` : ''].filter(Boolean).join(' · ')}</span>}
                 </button>
               </td>
               <td>{item.layerCount}</td>
