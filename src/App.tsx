@@ -9,7 +9,7 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getCodeSummary, getIgeKey, getIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getCodeSummary, getIgeKey, getIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -21,6 +21,12 @@ const PASSPORT_FIELD_LABELS = {
 const CHARACTERISTIC_FIELD_LABELS: Record<SoilCharacteristicField, string> = {
   standard: 'нормативное значение',
   design: 'расчётное значение',
+  source: 'источник'
+}
+const LAB_TEST_FIELD_LABELS: Record<LabTestField, string> = {
+  sample: 'номер образца',
+  boreholeId: 'скважина',
+  depth: 'глубина',
   source: 'источник'
 }
 
@@ -264,6 +270,74 @@ export default function App() {
     toast.success(`Характеристика ИГЭ ${code} обновлена`)
   }
 
+  const updateLabTests = (code: string, activityText: string, updater: (tests: LabTest[]) => LabTest[]) => {
+    const key = getIgeKey(code)
+    if (!project || key === '__unassigned__') return
+    commitProject(current => {
+      const previousPassport = current.igePassports?.[key] || { name: '', description: '', notes: '' }
+      const previousTests = previousPassport.labTests || []
+      const nextTests = updater(previousTests)
+      if (nextTests === previousTests) return current
+      return addActivity({
+        ...current,
+        igePassports: {
+          ...current.igePassports,
+          [key]: { ...previousPassport, labTests: nextTests }
+        },
+        columns: current.columns.map(column => column.layers.some(layer => getIgeKey(layer.ige) === key)
+          ? { ...column, isReviewed: false, reviewedAt: '' }
+          : column)
+      }, activityText)
+    })
+  }
+
+  const addLabTest = (code: string) => {
+    const test: LabTest = {
+      id: `lab-${Date.now()}-${Math.random()}`,
+      sample: '',
+      boreholeId: selected?.id || '',
+      depth: null,
+      source: '',
+      values: {}
+    }
+    updateLabTests(code, `ИГЭ ${code}: добавлено лабораторное испытание`, tests => [...tests, test])
+    toast.success(`Испытание ИГЭ ${code} добавлено`)
+  }
+
+  const deleteLabTest = (code: string, testId: string) => {
+    const test = project?.igePassports?.[getIgeKey(code)]?.labTests?.find(item => item.id === testId)
+    updateLabTests(code, `ИГЭ ${code}: удалено испытание ${test?.sample.trim() || testId}`, tests => tests.filter(item => item.id !== testId))
+    toast.success('Испытание удалено; действие можно отменить')
+  }
+
+  const changeLabTest = (code: string, testId: string, field: LabTestField, value: string | number | null) => {
+    const normalizedValue = field === 'depth' ? typeof value === 'number' && Number.isFinite(value) ? value : null : String(value ?? '')
+    updateLabTests(code, `ИГЭ ${code}: изменено поле «${LAB_TEST_FIELD_LABELS[field]}» испытания`, tests => {
+      let changed = false
+      const next = tests.map(test => {
+        if (test.id !== testId || test[field] === normalizedValue) return test
+        changed = true
+        return { ...test, [field]: normalizedValue }
+      })
+      return changed ? next : tests
+    })
+  }
+
+  const changeLabTestValue = (code: string, testId: string, property: SoilCharacteristicKey, value: number | null) => {
+    updateLabTests(code, `ИГЭ ${code}: изменено значение «${SOIL_CHARACTERISTICS.find(item => item.key === property)?.label}» в испытании`, tests => {
+      let changed = false
+      const next = tests.map(test => {
+        if (test.id !== testId || test.values[property] === value || (value === null && test.values[property] === undefined)) return test
+        changed = true
+        const values = { ...test.values }
+        if (value === null) delete values[property]
+        else values[property] = value
+        return { ...test, values }
+      })
+      return changed ? next : tests
+    })
+  }
+
   const addLayer = (depth: number, code: string) => {
     if (!project || !selected || selected.isExcluded) return
     const insertionIndex = selectedLayer ? selected.layers.findIndex(layer => layer.id === selectedLayer.id) + 1 : selected.layers.length
@@ -435,13 +509,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name }))} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.10</span>
+        <span>Прототип 0.11</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

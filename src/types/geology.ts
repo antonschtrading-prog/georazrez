@@ -97,11 +97,23 @@ export interface SoilCharacteristicRecord {
   source: string
 }
 
+export type LabTestField = 'sample' | 'boreholeId' | 'depth' | 'source'
+
+export interface LabTest {
+  id: string
+  sample: string
+  boreholeId: string
+  depth: number | null
+  source: string
+  values: Partial<Record<SoilCharacteristicKey, number>>
+}
+
 export interface IgePassport {
   name: string
   description: string
   notes: string
   characteristics?: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
+  labTests?: LabTest[]
 }
 
 export interface GeoProject {
@@ -159,6 +171,29 @@ export function getCharacteristicCoverage(passport: IgePassport | null | undefin
     if (record?.source.trim()) sourced += 1
   }
   return { filled, sourced, total: SOIL_CHARACTERISTICS.length * 2 }
+}
+
+export interface LabCharacteristicStatistic {
+  key: SoilCharacteristicKey
+  count: number
+  min: number | null
+  max: number | null
+  mean: number | null
+}
+
+export function getLabStatistics(passport: IgePassport | null | undefined): LabCharacteristicStatistic[] {
+  return SOIL_CHARACTERISTICS.map(property => {
+    const values = (passport?.labTests || [])
+      .map(test => test.values[property.key])
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    return {
+      key: property.key,
+      count: values.length,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
+      mean: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+    }
+  })
 }
 
 export interface LayerNeighborMatch {
@@ -220,6 +255,7 @@ export interface CodeSummaryItem {
   issueCount: number
   characteristicFilled: number
   characteristicTotal: number
+  labTestCount: number
   boreholeId: string
   layerId: string
 }
@@ -313,6 +349,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
           issueCount: 0,
           characteristicFilled: characteristicCoverage.filled,
           characteristicTotal: characteristicCoverage.total,
+          labTestCount: project.igePassports?.[key]?.labTests?.length || 0,
           boreholeId: column.id,
           layerId: layer.id,
           boreholeIds: new Set(),
@@ -354,6 +391,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     issueCount: group.issueCount,
     characteristicFilled: group.characteristicFilled,
     characteristicTotal: group.characteristicTotal,
+    labTestCount: group.labTestCount,
     boreholeId: group.boreholeId,
     layerId: group.layerId
   })).sort((a, b) => {

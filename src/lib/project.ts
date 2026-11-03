@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getIgeKey, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -166,7 +166,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Средняя мощность, м', key: 'averageThickness', width: 21 },
     { header: 'Ручных решений', key: 'manual', width: 18 },
     { header: 'Нерешённых проблем', key: 'issues', width: 22 },
-    { header: 'Заполнено характеристик', key: 'characteristics', width: 25 }
+    { header: 'Заполнено характеристик', key: 'characteristics', width: 25 },
+    { header: 'Лабораторных испытаний', key: 'labTests', width: 24 }
   ]
   const summaryItems = getCodeSummary(project)
   for (const item of summaryItems) {
@@ -186,13 +187,14 @@ export async function exportWorkbook(project: GeoProject) {
       averageThickness: item.averageThickness,
       manual: item.manualCount,
       issues: item.issueCount,
-      characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`
+      characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`,
+      labTests: item.labTestCount
     })
     for (let columnIndex = 8; columnIndex <= 12; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'O1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'P1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
   const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
@@ -229,6 +231,79 @@ export async function exportWorkbook(project: GeoProject) {
   characteristics.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
   characteristics.autoFilter = { from: 'A1', to: 'H1' }
   characteristics.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const labSheet = workbook.addWorksheet('Испытания ИГЭ')
+  labSheet.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 14 },
+    { header: 'Наименование ИГЭ', key: 'igeName', width: 28 },
+    { header: 'Номер образца', key: 'sample', width: 20 },
+    { header: 'Скважина', key: 'borehole', width: 24 },
+    { header: 'Глубина, м', key: 'depth', width: 16 },
+    { header: 'Отчёт / протокол', key: 'source', width: 42 },
+    ...SOIL_CHARACTERISTICS.map(property => ({
+      header: `${property.label}${property.unit !== '—' ? `, ${property.unit}` : ''}`,
+      key: property.key,
+      width: 24
+    }))
+  ]
+  for (const item of summaryItems) {
+    if (item.key === '__unassigned__') continue
+    const passport = project.igePassports?.[item.key]
+    for (const test of passport?.labTests || []) {
+      const rowData: Record<string, ExcelJS.CellValue> = {
+        code: item.code,
+        igeName: passport?.name || '',
+        sample: test.sample,
+        borehole: project.columns.find(column => column.id === test.boreholeId)?.name || '',
+        depth: test.depth,
+        source: test.source
+      }
+      for (const property of SOIL_CHARACTERISTICS) rowData[property.key] = test.values[property.key] ?? null
+      const row = labSheet.addRow(rowData)
+      row.getCell(5).numFmt = '0.00'
+      for (let columnIndex = 7; columnIndex <= 16; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
+    }
+  }
+  labSheet.getRow(1).font = { bold: true }
+  labSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  labSheet.autoFilter = { from: 'A1', to: 'P1' }
+  labSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const labStats = workbook.addWorksheet('Статистика ИГЭ')
+  labStats.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 14 },
+    { header: 'Наименование ИГЭ', key: 'name', width: 28 },
+    { header: 'Группа', key: 'group', width: 20 },
+    { header: 'Характеристика', key: 'property', width: 38 },
+    { header: 'Единица', key: 'unit', width: 14 },
+    { header: 'n', key: 'count', width: 10 },
+    { header: 'Минимум', key: 'min', width: 16 },
+    { header: 'Максимум', key: 'max', width: 16 },
+    { header: 'Среднее арифметическое', key: 'mean', width: 26 }
+  ]
+  for (const item of summaryItems) {
+    if (item.key === '__unassigned__') continue
+    const passport = project.igePassports?.[item.key]
+    for (const statistic of getLabStatistics(passport)) {
+      const property = SOIL_CHARACTERISTICS.find(candidate => candidate.key === statistic.key)!
+      const row = labStats.addRow({
+        code: item.code,
+        name: passport?.name || '',
+        group: property.group,
+        property: property.label,
+        unit: property.unit,
+        count: statistic.count,
+        min: statistic.min,
+        max: statistic.max,
+        mean: statistic.mean
+      })
+      for (let columnIndex = 7; columnIndex <= 9; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
+    }
+  }
+  labStats.getRow(1).font = { bold: true }
+  labStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  labStats.autoFilter = { from: 'A1', to: 'I1' }
+  labStats.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')
   control.columns = [
@@ -294,6 +369,16 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
         Object.entries(passport.characteristics).some(([key, record]) =>
           !SOIL_CHARACTERISTICS.some(property => property.key === key) || !record ||
           !isNullableFiniteNumber(record.standard) || !isNullableFiniteNumber(record.design) || typeof record.source !== 'string'
+        )
+      )) ||
+      (passport.labTests !== undefined && (
+        !Array.isArray(passport.labTests) || passport.labTests.some(test =>
+          !test || typeof test.id !== 'string' || typeof test.sample !== 'string' || typeof test.boreholeId !== 'string' ||
+          !isNullableFiniteNumber(test.depth) || typeof test.source !== 'string' ||
+          !test.values || typeof test.values !== 'object' || Array.isArray(test.values) ||
+          Object.entries(test.values).some(([key, value]) =>
+            !SOIL_CHARACTERISTICS.some(property => property.key === key) || typeof value !== 'number' || !Number.isFinite(value)
+          )
         )
       ))
     )
