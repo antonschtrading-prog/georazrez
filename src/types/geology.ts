@@ -281,9 +281,9 @@ export interface LabCharacteristicStatistic {
   mean: number | null
 }
 
-export function getLabStatistics(passport: IgePassport | null | undefined): LabCharacteristicStatistic[] {
+export function getLabTestStatistics(tests: LabTest[]): LabCharacteristicStatistic[] {
   return SOIL_CHARACTERISTICS.map(property => {
-    const values = (passport?.labTests || [])
+    const values = tests
       .map(test => test.values[property.key])
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
     return {
@@ -294,6 +294,10 @@ export function getLabStatistics(passport: IgePassport | null | undefined): LabC
       mean: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
     }
   })
+}
+
+export function getLabStatistics(passport: IgePassport | null | undefined): LabCharacteristicStatistic[] {
+  return getLabTestStatistics(passport?.labTests || [])
 }
 
 export interface LayerNeighborMatch {

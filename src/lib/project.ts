@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLayerDepthIssue, getLayerThickness, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLabTestStatistics, getLayerDepthIssue, getLayerThickness, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -448,6 +448,48 @@ export async function exportWorkbook(project: GeoProject) {
   labStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
   labStats.autoFilter = { from: 'A1', to: 'I1' }
   labStats.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const labBoreholeStats = workbook.addWorksheet('Статистика по скважинам')
+  labBoreholeStats.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 14 },
+    { header: 'Наименование ИГЭ', key: 'name', width: 28 },
+    { header: 'Скважина', key: 'borehole', width: 26 },
+    { header: 'Группа', key: 'group', width: 20 },
+    { header: 'Характеристика', key: 'property', width: 38 },
+    { header: 'Единица', key: 'unit', width: 14 },
+    { header: 'n', key: 'count', width: 10 },
+    { header: 'Минимум', key: 'min', width: 16 },
+    { header: 'Максимум', key: 'max', width: 16 },
+    { header: 'Среднее арифметическое', key: 'mean', width: 26 }
+  ]
+  for (const item of summaryItems) {
+    if (item.key === '__unassigned__') continue
+    const passport = project.igePassports?.[item.key]
+    for (const column of project.columns) {
+      const tests = (passport?.labTests || []).filter(test => test.boreholeId === column.id)
+      if (!tests.length) continue
+      for (const statistic of getLabTestStatistics(tests)) {
+        const property = SOIL_CHARACTERISTICS.find(candidate => candidate.key === statistic.key)!
+        const row = labBoreholeStats.addRow({
+          code: item.code,
+          name: passport?.name || '',
+          borehole: column.name,
+          group: property.group,
+          property: property.label,
+          unit: property.unit,
+          count: statistic.count,
+          min: statistic.min,
+          max: statistic.max,
+          mean: statistic.mean
+        })
+        for (let columnIndex = 8; columnIndex <= 10; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
+      }
+    }
+  }
+  labBoreholeStats.getRow(1).font = { bold: true }
+  labBoreholeStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  labBoreholeStats.autoFilter = { from: 'A1', to: 'J1' }
+  labBoreholeStats.views = [{ state: 'frozen', ySplit: 1 }]
 
   const labControl = workbook.addWorksheet('Контроль лаборатории')
   labControl.columns = [

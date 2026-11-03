@@ -1,6 +1,6 @@
 import { useRef, useState, type FocusEvent } from 'react'
 import { AlertTriangle, FileDown, FlaskConical, LoaderCircle, Plus, Trash2, Upload } from 'lucide-react'
-import { getLabStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataIssue, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
+import { getLabTestStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataIssue, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface BoreholeOption {
   id: string
@@ -31,9 +31,13 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
   const [busy, setBusy] = useState(false)
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [importMessage, setImportMessage] = useState('')
+  const [statsBoreholeId, setStatsBoreholeId] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
   const tests = passport?.labTests || []
-  const statistics = getLabStatistics(passport)
+  const activeStatsBoreholeId = tests.some(test => test.boreholeId === statsBoreholeId) ? statsBoreholeId : ''
+  const statisticsTests = activeStatsBoreholeId ? tests.filter(test => test.boreholeId === activeStatsBoreholeId) : tests
+  const statistics = getLabTestStatistics(statisticsTests)
+  const statisticsBoreholes = boreholes.filter(borehole => tests.some(test => test.boreholeId === borehole.id))
   const affectedTestIds = new Set(issues.map(issue => issue.testId))
   const filledValues = tests.reduce((sum, test) => sum + SOIL_CHARACTERISTICS.filter(property => Number.isFinite(test.values[property.key])).length, 0)
 
@@ -200,6 +204,23 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
 
     <div className="lab-statistics">
       <div className="lab-statistics-heading"><FlaskConical size={14} /><h4>Статистика по испытаниям</h4></div>
+      <label className="lab-stats-scope">
+        <span>Область статистики</span>
+        <select
+          value={activeStatsBoreholeId}
+          disabled={!statisticsBoreholes.length}
+          aria-label="Скважина для статистики"
+          onChange={event => setStatsBoreholeId(event.target.value)}
+        >
+          <option value="">Все скважины</option>
+          {statisticsBoreholes.map(borehole => <option value={borehole.id} key={borehole.id}>{borehole.name}</option>)}
+        </select>
+      </label>
+      <p className="lab-stats-scope-note">
+        {activeStatsBoreholeId
+          ? `Только ${boreholes.find(borehole => borehole.id === activeStatsBoreholeId)?.name || 'выбранная скважина'}`
+          : 'Все скважины ИГЭ'} · образцов в расчёте: {statisticsTests.length}
+      </p>
       <div className="lab-stats-header"><span>Показатель</span><span>n</span><span>min–max</span><span>Среднее</span></div>
       {statistics.map(statistic => {
         const property = SOIL_CHARACTERISTICS.find(item => item.key === statistic.key)!
