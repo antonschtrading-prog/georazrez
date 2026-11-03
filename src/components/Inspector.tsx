@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { formatPk, type Borehole, type CodeStatus } from '@/types/geology'
+import { formatPk, getLayerThickness, type Borehole, type CodeStatus } from '@/types/geology'
 
 interface Props {
   column: Borehole
@@ -106,11 +106,12 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
               <button type="button" onClick={() => setDeleteOpen(true)} disabled={disabled || !selectedLayer} aria-label="Удалить выбранный слой" title="Удалить выбранную подошву"><Trash2 size={13} /></button>
             </div>
           </div>
-          <div className="layer-table-header"><span>Глубина, м</span><span>ИГЭ</span><span>Статус</span></div>
+          <div className="layer-table-header"><span>Глубина, м</span><span>ИГЭ</span><span>Мощн., м</span><span>Статус</span></div>
           <div className="layer-rows">
             {column.layers.map((layer, index) => {
               const candidates = [...new Set(layer.candidates.map(c => c.code))]
               const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+              const thickness = getLayerThickness(column.layers, index)
               return (
                 <div
                   key={layer.id}
@@ -149,6 +150,7 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, 
                       }}
                       onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
                     />
+                    <span className="layer-thickness" title={`Мощность от предыдущей подошвы: ${thickness.toFixed(2).replace('.', ',')} м`}>{thickness.toFixed(2).replace('.', ',')}</span>
                     <span className={`layer-status status-${layer.status}`} title={layer.source}>
                       {layer.status === 'topology' ? <Link2 size={12} /> : layer.status === 'manual' ? <Check size={12} /> : layer.status === 'vertical-only' ? <CircleDashed size={12} /> : <AlertTriangle size={12} />}
                       {statusText[layer.status]}

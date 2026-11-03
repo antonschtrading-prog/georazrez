@@ -123,6 +123,9 @@ export interface CodeSummaryItem {
   boreholeCount: number
   minDepth: number
   maxDepth: number
+  minThickness: number
+  maxThickness: number
+  averageThickness: number
   manualCount: number
   issueCount: number
   boreholeId: string
@@ -169,16 +172,21 @@ export function getIssues(project: GeoProject): GeoIssue[] {
   return issues
 }
 
+export function getLayerThickness(layers: Layer[], index: number): number {
+  return layers[index].depth - (layers[index - 1]?.depth ?? 0)
+}
+
 export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
-  type Group = CodeSummaryItem & { boreholeIds: Set<string>; variantSet: Set<string>; targetHasIssue: boolean }
+  type Group = CodeSummaryItem & { boreholeIds: Set<string>; variantSet: Set<string>; targetHasIssue: boolean; thicknessSum: number }
   const groups = new Map<string, Group>()
   for (const column of project.columns) {
     if (column.isExcluded) continue
-    for (const layer of column.layers) {
+    for (const [layerIndex, layer] of column.layers.entries()) {
       const rawCode = layer.ige.trim()
       const normalized = rawCode.toLocaleUpperCase('ru-RU')
       const key = normalized || '__unassigned__'
       const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+      const thickness = getLayerThickness(column.layers, layerIndex)
       let group = groups.get(key)
       if (!group) {
         group = {
@@ -189,6 +197,10 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
           boreholeCount: 0,
           minDepth: layer.depth,
           maxDepth: layer.depth,
+          minThickness: thickness,
+          maxThickness: thickness,
+          averageThickness: thickness,
+          thicknessSum: 0,
           manualCount: 0,
           issueCount: 0,
           boreholeId: column.id,
@@ -202,6 +214,9 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
       group.layerCount += 1
       group.minDepth = Math.min(group.minDepth, layer.depth)
       group.maxDepth = Math.max(group.maxDepth, layer.depth)
+      group.minThickness = Math.min(group.minThickness, thickness)
+      group.maxThickness = Math.max(group.maxThickness, thickness)
+      group.thicknessSum += thickness
       group.boreholeIds.add(column.id)
       if (rawCode) group.variantSet.add(rawCode)
       if (layer.status === 'manual') group.manualCount += 1
@@ -221,6 +236,9 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     boreholeCount: group.boreholeIds.size,
     minDepth: group.minDepth,
     maxDepth: group.maxDepth,
+    minThickness: group.minThickness,
+    maxThickness: group.maxThickness,
+    averageThickness: group.thicknessSum / group.layerCount,
     manualCount: group.manualCount,
     issueCount: group.issueCount,
     boreholeId: group.boreholeId,

@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -113,6 +113,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ПК', key: 'pk', width: 16 },
     { header: 'Наименование скважины', key: 'name', width: 28 },
     { header: 'Глубина подошвы слоя, м', key: 'depth', width: 24 },
+    { header: 'Мощность слоя, м', key: 'thickness', width: 20 },
     { header: 'Источник глубины', key: 'depthSource', width: 24 },
     { header: 'Код ИГЭ', key: 'ige', width: 14 },
     { header: 'X', key: 'x', width: 18 },
@@ -122,17 +123,20 @@ export async function exportWorkbook(project: GeoProject) {
   ]
   for (const column of project.columns) {
     if (column.isExcluded) continue
-    for (const layer of column.layers) {
-      sheet.addRow({
+    for (const [layerIndex, layer] of column.layers.entries()) {
+      const row = sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth,
+        thickness: getLayerThickness(column.layers, layerIndex),
         depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
         ige: layer.ige, x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
       })
+      row.getCell(3).numFmt = '0.00'
+      row.getCell(4).numFmt = '0.00'
     }
   }
   sheet.getRow(1).font = { bold: true }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.autoFilter = { from: 'A1', to: 'I1' }
+  sheet.autoFilter = { from: 'A1', to: 'J1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
@@ -143,24 +147,31 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Скважин', key: 'boreholes', width: 12 },
     { header: 'Мин. глубина, м', key: 'minDepth', width: 18 },
     { header: 'Макс. глубина, м', key: 'maxDepth', width: 18 },
+    { header: 'Мин. мощность, м', key: 'minThickness', width: 18 },
+    { header: 'Макс. мощность, м', key: 'maxThickness', width: 18 },
+    { header: 'Средняя мощность, м', key: 'averageThickness', width: 21 },
     { header: 'Ручных решений', key: 'manual', width: 18 },
     { header: 'Нерешённых проблем', key: 'issues', width: 22 }
   ]
   for (const item of getCodeSummary(project)) {
-    codeSummary.addRow({
+    const row = codeSummary.addRow({
       code: item.code,
       variants: item.variants.join(' / '),
       layers: item.layerCount,
       boreholes: item.boreholeCount,
       minDepth: item.minDepth,
       maxDepth: item.maxDepth,
+      minThickness: item.minThickness,
+      maxThickness: item.maxThickness,
+      averageThickness: item.averageThickness,
       manual: item.manualCount,
       issues: item.issueCount
     })
+    for (let columnIndex = 5; columnIndex <= 9; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'H1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'K1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')

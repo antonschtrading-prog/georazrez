@@ -66,6 +66,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <th>Слоёв</th>
               <th>Скважин</th>
               <th>Глубины, м</th>
+              <th>Мощность, м · min–max / Ø</th>
               <th>Вручную</th>
               <th>Проблемы</th>
             </tr></thead>
@@ -79,6 +80,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <td>{item.layerCount}</td>
               <td>{item.boreholeCount}</td>
               <td>{formatDepth(item.minDepth)}–{formatDepth(item.maxDepth)}</td>
+              <td>{formatDepth(item.minThickness)}–{formatDepth(item.maxThickness)} · Ø {formatDepth(item.averageThickness)}</td>
               <td>{item.manualCount}</td>
               <td className={item.issueCount ? 'has-issues' : ''}>{item.issueCount}</td>
             </tr>)}</tbody>
