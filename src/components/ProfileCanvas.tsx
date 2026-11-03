@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react'
-import type { Borehole, GeoProject } from '@/types/geology'
+import type { Borehole, GeoProject, Layer } from '@/types/geology'
 
 type View = { cx: number; cy: number; w: number; h: number }
 
 interface Props {
   project: GeoProject
   selectedId: string
+  selectedLayer: Layer | null
   onSelect: (id: string) => void
   showLabels: boolean
   showCodes: boolean
@@ -14,12 +15,13 @@ interface Props {
   focusToken: number
 }
 
-export function ProfileCanvas({ project, selectedId, onSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
+export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
   const drag = useRef<{ x: number; y: number; view: View } | null>(null)
   const selected = project.columns.find(c => c.id === selectedId)
+  const candidateKeys = new Set((selectedLayer?.candidates || []).map(candidate => `${candidate.x}|${candidate.y}`))
 
   useEffect(() => {
     if (!host.current) return
@@ -119,8 +121,15 @@ export function ProfileCanvas({ project, selectedId, onSelect, showLabels, showC
               <line key={`${s.handle || 's'}-${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} vectorEffect="non-scaling-stroke" />
             ))}
           </g>
-          {showCodes && detail && <g className="geo-circles">
-            {visible.circles.map((c, i) => <circle key={`${c.handle || 'c'}-${i}`} cx={c.x} cy={c.y} r={c.r} vectorEffect="non-scaling-stroke" />)}
+          {(showCodes || selectedLayer) && detail && <g className="geo-circles">
+            {visible.circles.filter(c => showCodes || candidateKeys.has(`${c.x}|${c.y}`)).map((c, i) => {
+              const candidate = candidateKeys.has(`${c.x}|${c.y}`)
+              return <circle className={candidate ? 'candidate-circle' : ''} key={`${c.handle || 'c'}-${i}`} cx={c.x} cy={c.y} r={c.r} vectorEffect="non-scaling-stroke" />
+            })}
+          </g>}
+          {selected && selectedLayer && detail && <g className="candidate-links">
+            {selectedLayer.candidates.map((candidate, index) => <line key={`${candidate.x}-${candidate.y}-${index}`} x1={selected.x} y1={selectedLayer.y} x2={candidate.x} y2={candidate.y} vectorEffect="non-scaling-stroke" />)}
+            <line className="selected-layer-boundary" x1={selected.x - 3} y1={selectedLayer.y} x2={selected.x + 3} y2={selectedLayer.y} vectorEffect="non-scaling-stroke" />
           </g>}
         </g>
         {detail && <g className="geo-texts">
@@ -168,7 +177,7 @@ export function ProfileCanvas({ project, selectedId, onSelect, showLabels, showC
         <button type="button" onClick={() => zoom(0.8)} title="Увеличить" aria-label="Увеличить"><Plus size={16} /></button>
         <button type="button" onClick={() => focus(selected)} title="Показать выбранную скважину" aria-label="Показать выбранную скважину"><Crosshair size={16} /></button>
       </div>
-      <div className="canvas-position-readout">В поле: {visible.columns.length} · Колесо — масштаб · Перетаскивание — панорама</div>
+      <div className="canvas-position-readout">В поле: {visible.columns.length} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Связей кандидатов: ${selectedLayer.candidates.length}` : ''}</div>
     </div>
   )
 }

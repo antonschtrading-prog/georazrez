@@ -45,10 +45,10 @@ export function BoreholeList({ project, selectedId, onSelect }: Props) {
               type="button"
               role="listitem"
               key={column.id}
-              className={`borehole-item ${selectedId === column.id ? 'selected' : ''}`}
+              className={`borehole-item ${selectedId === column.id ? 'selected' : ''} ${column.isExcluded ? 'excluded' : ''}`}
               onClick={() => onSelect(column.id)}
             >
-              <span className={`borehole-status ${count ? 'has-issues' : 'clear'}`} aria-hidden="true" />
+              <span className={`borehole-status ${column.isExcluded ? 'excluded' : count ? 'has-issues' : 'clear'}`} aria-hidden="true" />
               <span className="borehole-copy">
                 <strong>{column.name}</strong>
                 <span>ПК {formatPk(column.pk)} · {column.layers.length} слоёв</span>

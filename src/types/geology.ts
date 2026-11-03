@@ -37,6 +37,8 @@ export interface Borehole {
   coordY: number | null
   layers: Layer[]
   excluded: ExcludedLabel[]
+  isExcluded?: boolean
+  exclusionReason?: string
 }
 
 export interface GeoSegment {
@@ -113,6 +115,7 @@ export function formatPk(value: number) {
 export function getIssues(project: GeoProject): GeoIssue[] {
   const issues: GeoIssue[] = []
   for (const column of project.columns) {
+    if (column.isExcluded) continue
     if (!column.sourceNamed) {
       issues.push({
         id: `name-${column.id}`,

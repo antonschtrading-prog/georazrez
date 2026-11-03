@@ -7,7 +7,7 @@ import { IssueDock } from '@/components/IssueDock'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity } from '@/lib/project'
+import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { getIssues, type CodeStatus, type GeoIssue, type GeoProject } from '@/types/geology'
 import './App.css'
@@ -57,7 +57,9 @@ export default function App() {
 
   const issues = useMemo(() => project ? getIssues(project) : [], [project])
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
-  const layerCount = project?.columns.reduce((sum, column) => sum + column.layers.length, 0) || 0
+  const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
+  const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
+  const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
 
   const selectBorehole = (id: string) => {
     setSelectedId(id)
@@ -128,6 +130,25 @@ export default function App() {
     if (code) toast.success(`ИГЭ ${code} подтверждён вручную`)
   }
 
+  const toggleSelectedExcluded = (reason: string) => {
+    if (!project || !selected) return
+    const excluding = !selected.isExcluded
+    setProject(current => {
+      if (!current) return current
+      const nextProject: GeoProject = {
+        ...current,
+        columns: current.columns.map(column => column.id === selected.id ? {
+          ...column,
+          isExcluded: excluding,
+          exclusionReason: excluding ? reason : ''
+        } : column)
+      }
+      return addActivity(nextProject, excluding ? `${selected.name}: исключена из расчёта. Причина: ${reason}` : `${selected.name}: возвращена в расчёт`)
+    })
+    setSelectedLayerId(null)
+    toast.success(excluding ? 'Колонка исключена из расчёта, исходная геометрия сохранена' : 'Колонка возвращена в расчёт')
+  }
+
   const saveNow = async () => {
     if (!project) return
     try { await storeProject(project); setSaveState('saved'); toast.success('Проект сохранён в этом браузере') }
@@ -141,6 +162,15 @@ export default function App() {
     setSelectedLayerId(null)
     setFitToken(value => value + 1)
     toast.success(`Проект построен: ${next.columns.length} колонок`)
+  }
+
+  const openSavedProject = async (file: File) => {
+    const next = await readProjectFile(file)
+    setProject(next)
+    setSelectedId(next.columns.find(column => !column.isExcluded)?.id || next.columns[0]?.id || '')
+    setSelectedLayerId(null)
+    setFitToken(value => value + 1)
+    toast.success(`Проект «${next.title}» открыт`)
   }
 
   if (loading) return <div className="app-loading"><div className="brand-mark">ГЕО<span>/</span>РАЗРЕЗ</div><div className="loading-line"><span /></div><p>Загружаем геологический проект…</p></div>
@@ -185,25 +215,25 @@ export default function App() {
             </div>
           </div>
           <div className="project-metrics">
-            <div><strong>{project.columns.length}</strong><span>колонок</span></div>
+            <div><strong>{activeColumns.length}</strong><span>в расчёте · {project.columns.length} в DXF</span></div>
             <div><strong>{layerCount}</strong><span>подошв слоёв</span></div>
             <div className="metric-warning"><strong>{issues.filter(i => i.kind === 'ambiguous-code').length}</strong><span>неоднозначных ИГЭ</span></div>
             <div><strong>{project.columns.filter(c => c.sourceNamed).length}</strong><span>имён из DXF</span></div>
             <span className="real-data-badge">Реальные исходники</span>
           </div>
-          <ProfileCanvas project={project} selectedId={selected?.id || ''} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
+          <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
           <IssueDock issues={issues} activity={project.activity} onSelect={selectIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.1</span>
+        <span>Прототип 0.2</span>
       </footer>
-      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
   )
 }

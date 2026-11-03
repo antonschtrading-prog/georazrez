@@ -261,6 +261,30 @@
 .excluded-item code { color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 9px; }
 .inspector-footer { flex: none; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted-text); font-size: 9px; text-align: center; }
 
+.borehole-item.excluded:not(.selected) { opacity: .62; }
+.borehole-status.excluded { background: var(--gray-70); }
+.source-badge.excluded { background: var(--gray-90); color: var(--muted-text); }
+.excluded-column-note { margin: 0 16px 13px; padding: 10px; display: flex; flex-direction: column; gap: 4px; background: var(--gray-90); border-left: 2px solid var(--gray-45); }
+.excluded-column-note strong { font-size: 10px; font-weight: 600; }
+.excluded-column-note span { color: var(--muted-text); font-size: 10px; line-height: 1.45; }
+.column-review-section { margin: 14px 16px 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+.column-review-section > strong { font-size: 11px; font-weight: 600; }
+.column-review-section p { margin: 6px 0 11px; color: var(--muted-text); font-size: 10px; line-height: 1.5; }
+.column-review-section .button { width: 100%; min-height: 34px; font-size: 10px; }
+.danger-button { color: var(--danger) !important; }
+.exclude-dialog { max-width: 520px !important; background: var(--panel-bg); border-color: var(--line); color: var(--ink); }
+.exclude-dialog [data-slot="dialog-description"] { color: var(--muted-text); line-height: 1.5; }
+.reason-input { width: 100%; resize: vertical; min-height: 92px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-bg); color: var(--ink); font-size: 12px; line-height: 1.5; }
+.geo-circles .candidate-circle { stroke: var(--warning); fill: oklch(61% .15 65 / .18); stroke-width: 2; }
+.candidate-links { stroke: var(--warning); stroke-width: 1.3; stroke-dasharray: 4 3; fill: none; pointer-events: none; }
+.candidate-links .selected-layer-boundary { stroke: var(--accent-dark); stroke-width: 2.4; stroke-dasharray: none; }
+.saved-project-open { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; }
+.saved-project-open > span { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.saved-project-open strong { font-size: 11px; font-weight: 500; }
+.saved-project-open small { color: var(--muted-text); font-size: 9px; }
+.saved-project-open button { min-height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--ink); font-size: 10px; }
+.saved-project-open button:hover { background: var(--accent-lime); }
+
 .app-statusbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; background: var(--ink); color: var(--gray-85); font-size: 9px; }
 .app-statusbar > span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .app-statusbar > span:nth-child(2) { color: var(--gray-70); }

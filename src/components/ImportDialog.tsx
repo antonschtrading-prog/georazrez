@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileSpreadsheet, FileUp, LoaderCircle, ShieldCheck, Upload } from 'lucide-react'
+import { FileJson, FileSpreadsheet, FileUp, LoaderCircle, ShieldCheck, Upload } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   onImport: (dxf: File, axis: File) => Promise<void>
+  onOpenProject: (file: File) => Promise<void>
 }
 
-export function ImportDialog({ open, onOpenChange, onImport }: Props) {
+export function ImportDialog({ open, onOpenChange, onImport, onOpenProject }: Props) {
   const [dxf, setDxf] = useState<File | null>(null)
   const [axis, setAxis] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const dxfInput = useRef<HTMLInputElement>(null)
   const axisInput = useRef<HTMLInputElement>(null)
+  const projectInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) { setError(''); setBusy(false) }
@@ -34,6 +36,20 @@ export function ImportDialog({ open, onOpenChange, onImport }: Props) {
       setError(reason instanceof Error ? reason.message : 'Не удалось обработать файлы')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const openSaved = async (file: File) => {
+    setBusy(true)
+    setError('')
+    try {
+      await onOpenProject(file)
+      onOpenChange(false)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не удалось открыть проект')
+    } finally {
+      setBusy(false)
+      if (projectInput.current) projectInput.current.value = ''
     }
   }
 
@@ -59,6 +75,11 @@ export function ImportDialog({ open, onOpenChange, onImport }: Props) {
           </button>
         </div>
         <div className="privacy-note"><ShieldCheck size={17} /><span>Без AutoCAD, Excel, облака и платных сервисов. Импортированный проект сохраняется в этом браузере.</span></div>
+        <div className="saved-project-open">
+          <input ref={projectInput} type="file" accept=".json" hidden onChange={event => { const file = event.target.files?.[0]; if (file) openSaved(file) }} />
+          <FileJson size={17} /><span><strong>Уже есть сохранённый проект?</strong><small>Откройте JSON вместе с правками и журналом</small></span>
+          <button type="button" onClick={() => projectInput.current?.click()} disabled={busy}>Открыть JSON</button>
+        </div>
         {error && <div className="import-error" role="alert">{error}</div>}
         <div className="import-actions">
           <button type="button" className="button secondary" onClick={() => onOpenChange(false)} disabled={busy}>Отмена</button>

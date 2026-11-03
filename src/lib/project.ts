@@ -109,6 +109,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Y', key: 'y', width: 18 }
   ]
   for (const column of project.columns) {
+    if (column.isExcluded) continue
     for (const layer of column.layers) {
       sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth, ige: layer.ige,
@@ -128,13 +129,17 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ПК', key: 'pk', width: 16 },
     { header: 'Слоёв', key: 'layers', width: 12 },
     { header: 'Требуют проверки', key: 'issues', width: 20 },
-    { header: 'Источник имени', key: 'named', width: 22 }
+    { header: 'Источник имени', key: 'named', width: 22 },
+    { header: 'В расчёте', key: 'included', width: 16 },
+    { header: 'Причина исключения', key: 'reason', width: 42 }
   ]
   for (const column of project.columns) {
     control.addRow({
       index: column.index, name: column.name, pk: formatPk(column.pk), layers: column.layers.length,
-      issues: column.layers.filter(l => l.status === 'ambiguous' || l.status === 'not-found').length + (column.sourceNamed ? 0 : 1),
-      named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле'
+      issues: column.isExcluded ? 0 : column.layers.filter(l => l.status === 'ambiguous' || l.status === 'not-found').length + (column.sourceNamed ? 0 : 1),
+      named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
+      included: column.isExcluded ? 'Нет' : 'Да',
+      reason: column.exclusionReason || ''
     })
   }
   control.getRow(1).font = { bold: true }
@@ -148,6 +153,19 @@ export async function exportWorkbook(project: GeoProject) {
 
 export function exportProjectFile(project: GeoProject) {
   downloadBlob(new Blob([JSON.stringify(project)], { type: 'application/json' }), `${project.title}.geoproj.json`)
+}
+
+export async function readProjectFile(file: File): Promise<GeoProject> {
+  let parsed: GeoProject
+  try { parsed = JSON.parse(await file.text()) as GeoProject }
+  catch { throw new Error('Файл не является корректным JSON-проектом') }
+  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.columns) || !parsed.geometry || !Array.isArray(parsed.geometry.segments)) {
+    throw new Error('Структура проекта не поддерживается этой версией программы')
+  }
+  if (!parsed.columns.length || parsed.columns.some(column => !column.id || !Array.isArray(column.layers))) {
+    throw new Error('В проекте повреждены данные скважин')
+  }
+  return parsed
 }
 
 export function addActivity(project: GeoProject, text: string, type: ActivityItem['type'] = 'manual'): GeoProject {
