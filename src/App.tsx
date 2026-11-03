@@ -9,7 +9,7 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getIssues, type CodeStatus, type GeoIssue, type GeoProject, type Layer } from '@/types/geology'
+import { getCodeSummary, getIssues, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type Layer } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -61,9 +61,11 @@ export default function App() {
   }, [project])
 
   const issues = useMemo(() => project ? getIssues(project) : [], [project])
+  const codeSummary = useMemo(() => project ? getCodeSummary(project) : [], [project])
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
+  const activeCodeKey = selectedLayer ? selectedLayer.ige.trim().toLocaleUpperCase('ru-RU') || '__unassigned__' : null
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
@@ -121,6 +123,14 @@ export default function App() {
     setReviewIndex(index >= 0 ? index : null)
     setSelectedId(issue.boreholeId)
     setSelectedLayerId(issue.layerId || null)
+    setFocusToken(value => value + 1)
+  }
+
+  const selectCodeSummary = (item: CodeSummaryItem) => {
+    const issueIndex = issues.findIndex(issue => issue.boreholeId === item.boreholeId && issue.layerId === item.layerId)
+    setReviewIndex(issueIndex >= 0 ? issueIndex : null)
+    setSelectedId(item.boreholeId)
+    setSelectedLayerId(item.layerId)
     setFocusToken(value => value + 1)
   }
 
@@ -355,7 +365,7 @@ export default function App() {
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={issues} activity={project.activity} activeIssueId={activeIssueId} onSelect={selectIssue} onStep={stepIssue} />
+          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
         {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
@@ -364,7 +374,7 @@ export default function App() {
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.5</span>
+        <span>Прототип 0.6</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

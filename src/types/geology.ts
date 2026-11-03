@@ -115,6 +115,20 @@ export function formatPk(value: number) {
   return `${sign}${km}+${meters.toFixed(2).padStart(5, '0')}`
 }
 
+export interface CodeSummaryItem {
+  key: string
+  code: string
+  variants: string[]
+  layerCount: number
+  boreholeCount: number
+  minDepth: number
+  maxDepth: number
+  manualCount: number
+  issueCount: number
+  boreholeId: string
+  layerId: string
+}
+
 export function getIssues(project: GeoProject): GeoIssue[] {
   const issues: GeoIssue[] = []
   for (const column of project.columns) {
@@ -153,4 +167,67 @@ export function getIssues(project: GeoProject): GeoIssue[] {
     }
   }
   return issues
+}
+
+export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
+  type Group = CodeSummaryItem & { boreholeIds: Set<string>; variantSet: Set<string>; targetHasIssue: boolean }
+  const groups = new Map<string, Group>()
+  for (const column of project.columns) {
+    if (column.isExcluded) continue
+    for (const layer of column.layers) {
+      const rawCode = layer.ige.trim()
+      const normalized = rawCode.toLocaleUpperCase('ru-RU')
+      const key = normalized || '__unassigned__'
+      const hasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
+      let group = groups.get(key)
+      if (!group) {
+        group = {
+          key,
+          code: rawCode || '—',
+          variants: [],
+          layerCount: 0,
+          boreholeCount: 0,
+          minDepth: layer.depth,
+          maxDepth: layer.depth,
+          manualCount: 0,
+          issueCount: 0,
+          boreholeId: column.id,
+          layerId: layer.id,
+          boreholeIds: new Set(),
+          variantSet: new Set(),
+          targetHasIssue: false
+        }
+        groups.set(key, group)
+      }
+      group.layerCount += 1
+      group.minDepth = Math.min(group.minDepth, layer.depth)
+      group.maxDepth = Math.max(group.maxDepth, layer.depth)
+      group.boreholeIds.add(column.id)
+      if (rawCode) group.variantSet.add(rawCode)
+      if (layer.status === 'manual') group.manualCount += 1
+      if (hasIssue) group.issueCount += 1
+      if (hasIssue && !group.targetHasIssue) {
+        group.boreholeId = column.id
+        group.layerId = layer.id
+        group.targetHasIssue = true
+      }
+    }
+  }
+  return [...groups.values()].map(group => ({
+    key: group.key,
+    code: group.variantSet.size === 1 ? [...group.variantSet][0] : group.code,
+    variants: [...group.variantSet].sort((a, b) => a.localeCompare(b, 'ru')),
+    layerCount: group.layerCount,
+    boreholeCount: group.boreholeIds.size,
+    minDepth: group.minDepth,
+    maxDepth: group.maxDepth,
+    manualCount: group.manualCount,
+    issueCount: group.issueCount,
+    boreholeId: group.boreholeId,
+    layerId: group.layerId
+  })).sort((a, b) => {
+    if (a.key === '__unassigned__') return 1
+    if (b.key === '__unassigned__') return -1
+    return a.code.localeCompare(b.code, 'ru', { numeric: true })
+  })
 }

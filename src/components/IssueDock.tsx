@@ -1,17 +1,22 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, ListChecks } from 'lucide-react'
-import type { ActivityItem, GeoIssue, IssueKind } from '@/types/geology'
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks } from 'lucide-react'
+import type { ActivityItem, CodeSummaryItem, GeoIssue, IssueKind } from '@/types/geology'
 
 interface Props {
   issues: GeoIssue[]
   activity: ActivityItem[]
+  codeSummary: CodeSummaryItem[]
   activeIssueId: string | null
+  activeCodeKey: string | null
   onSelect: (issue: GeoIssue) => void
+  onSelectCode: (item: CodeSummaryItem) => void
   onStep: (direction: -1 | 1) => void
 }
 
-export function IssueDock({ issues, activity, activeIssueId, onSelect, onStep }: Props) {
-  const [tab, setTab] = useState<'issues' | 'activity'>('issues')
+const formatDepth = (value: number) => value.toFixed(2).replace('.', ',')
+
+export function IssueDock({ issues, activity, codeSummary, activeIssueId, activeCodeKey, onSelect, onSelectCode, onStep }: Props) {
+  const [tab, setTab] = useState<'issues' | 'codes' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | IssueKind>('all')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
@@ -20,8 +25,9 @@ export function IssueDock({ issues, activity, activeIssueId, onSelect, onStep }:
   return (
     <section className={`issue-dock ${collapsed ? 'collapsed' : ''}`} aria-label="Проверка проекта">
       <div className="issue-dock-header">
-        <div className="dock-tabs" role="tablist" aria-label="Проверка и журнал">
+        <div className="dock-tabs" role="tablist" aria-label="Проверка, сводка ИГЭ и журнал">
           <button type="button" role="tab" aria-selected={tab === 'issues'} className={tab === 'issues' ? 'active' : ''} onClick={() => { setTab('issues'); setCollapsed(false) }}><ListChecks size={15} /> Проверка <span>{issues.length}</span></button>
+          <button type="button" role="tab" aria-selected={tab === 'codes'} className={tab === 'codes' ? 'active' : ''} onClick={() => { setTab('codes'); setCollapsed(false) }}><Layers3 size={15} /> ИГЭ <span>{codeSummary.length}</span></button>
           <button type="button" role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'active' : ''} onClick={() => { setTab('activity'); setCollapsed(false) }}><History size={15} /> Журнал <span>{activity.length}</span></button>
         </div>
         {tab === 'issues' && !collapsed && <>
@@ -45,14 +51,41 @@ export function IssueDock({ issues, activity, activeIssueId, onSelect, onStep }:
         </button>
       </div>
       {!collapsed && <div className="issue-dock-body">
-        {tab === 'issues' ? <div className="issue-table" role="list">
+        {tab === 'issues' && <div className="issue-table" role="list">
           {filtered.map(issue => <button type="button" role="listitem" className={`issue-row ${issue.id === activeIssueId ? 'active' : ''}`} key={issue.id} onClick={() => onSelect(issue)}>
             <span className={`issue-icon ${issue.kind}`}><AlertCircle size={15} /></span>
             <span className="issue-copy"><strong>{issue.title}</strong><span>{issue.detail}</span></span>
             <span className="issue-action">Показать</span>
           </button>)}
           {!filtered.length && <div className="issue-empty">В этой категории проблем нет.</div>}
-        </div> : <div className="activity-list">
+        </div>}
+        {tab === 'codes' && <div className="code-summary-scroll">
+          <table className="code-summary-table">
+            <thead><tr>
+              <th>Код ИГЭ</th>
+              <th>Слоёв</th>
+              <th>Скважин</th>
+              <th>Глубины, м</th>
+              <th>Вручную</th>
+              <th>Проблемы</th>
+            </tr></thead>
+            <tbody>{codeSummary.map(item => <tr key={item.key} className={item.key === activeCodeKey ? 'active' : ''}>
+              <td>
+                <button type="button" className="code-summary-link" onClick={() => onSelectCode(item)} title="Перейти к слою этой группы" aria-label={`Перейти к слою с ИГЭ ${item.code}`}>
+                  <strong>{item.code}</strong>
+                  {item.variants.length > 1 && <span>{item.variants.join(' / ')}</span>}
+                </button>
+              </td>
+              <td>{item.layerCount}</td>
+              <td>{item.boreholeCount}</td>
+              <td>{formatDepth(item.minDepth)}–{formatDepth(item.maxDepth)}</td>
+              <td>{item.manualCount}</td>
+              <td className={item.issueCount ? 'has-issues' : ''}>{item.issueCount}</td>
+            </tr>)}</tbody>
+          </table>
+          {!codeSummary.length && <div className="issue-empty">В активных скважинах нет слоёв.</div>}
+        </div>}
+        {tab === 'activity' && <div className="activity-list">
           {activity.map(item => <div className="activity-row" key={item.id}>
             <span className={`activity-marker ${item.type}`} />
             <div><strong>{item.text}</strong><span>{item.at}</span></div>
