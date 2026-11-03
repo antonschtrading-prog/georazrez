@@ -2,7 +2,7 @@ import { useState, type FocusEvent } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { LabTests } from '@/components/LabTests'
-import { formatPk, getCharacteristicCoverage, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { formatPk, getCharacteristicCoverage, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type LabDataIssue, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface Props {
   column: Borehole
@@ -14,6 +14,7 @@ interface Props {
   onPassportChange: (code: string, field: 'name' | 'description' | 'notes', value: string) => void
   onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
   boreholes: { id: string; name: string }[]
+  labIssues: LabDataIssue[]
   onLabTestAdd: (code: string) => void
   onLabTestDelete: (code: string, testId: string) => void
   onLabTestChange: (code: string, testId: string, field: LabTestField, value: string | number | null) => void
@@ -36,7 +37,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -316,6 +317,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
           code={passportCode}
           passport={igePassport}
           boreholes={boreholes}
+          issues={labIssues}
           disabled={disabled}
           onAdd={onLabTestAdd}
           onDelete={onLabTestDelete}

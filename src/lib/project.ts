@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLayerDepthIssue, getLayerThickness, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -167,7 +167,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Ручных решений', key: 'manual', width: 18 },
     { header: 'Нерешённых проблем', key: 'issues', width: 22 },
     { header: 'Заполнено характеристик', key: 'characteristics', width: 25 },
-    { header: 'Лабораторных испытаний', key: 'labTests', width: 24 }
+    { header: 'Лабораторных испытаний', key: 'labTests', width: 24 },
+    { header: 'Замечаний лаборатории', key: 'labIssues', width: 24 }
   ]
   const summaryItems = getCodeSummary(project)
   for (const item of summaryItems) {
@@ -188,13 +189,14 @@ export async function exportWorkbook(project: GeoProject) {
       manual: item.manualCount,
       issues: item.issueCount,
       characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`,
-      labTests: item.labTestCount
+      labTests: item.labTestCount,
+      labIssues: item.labIssueCount
     })
     for (let columnIndex = 8; columnIndex <= 12; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'P1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'Q1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
   const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
@@ -304,6 +306,37 @@ export async function exportWorkbook(project: GeoProject) {
   labStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
   labStats.autoFilter = { from: 'A1', to: 'I1' }
   labStats.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const labControl = workbook.addWorksheet('Контроль лаборатории')
+  labControl.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 14 },
+    { header: 'Образец', key: 'sample', width: 22 },
+    { header: 'Скважина', key: 'borehole', width: 26 },
+    { header: 'Глубина, м', key: 'depth', width: 16 },
+    { header: 'Тип замечания', key: 'kind', width: 28 },
+    { header: 'Замечание', key: 'title', width: 46 },
+    { header: 'Пояснение', key: 'detail', width: 80 },
+    { header: 'Отчёт / протокол', key: 'source', width: 42 }
+  ]
+  const projectLabIssues = getProjectLabIssues(project)
+  for (const issue of projectLabIssues) {
+    const test = project.igePassports?.[issue.code]?.labTests?.find(item => item.id === issue.testId)
+    const row = labControl.addRow({
+      code: issue.code,
+      sample: issue.sample,
+      borehole: project.columns.find(column => column.id === test?.boreholeId)?.name || '',
+      depth: test?.depth ?? null,
+      kind: LAB_ISSUE_LABELS[issue.kind],
+      title: issue.title,
+      detail: issue.detail,
+      source: test?.source || ''
+    })
+    row.getCell(4).numFmt = '0.00'
+  }
+  labControl.getRow(1).font = { bold: true }
+  labControl.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  labControl.autoFilter = { from: 'A1', to: 'H1' }
+  labControl.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')
   control.columns = [

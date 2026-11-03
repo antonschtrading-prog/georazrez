@@ -137,6 +137,86 @@ export interface GeoProject {
   activity: ActivityItem[]
 }
 
+export type LabIssueKind =
+  | 'missing-sample'
+  | 'duplicate-sample'
+  | 'missing-borehole'
+  | 'unknown-borehole'
+  | 'missing-depth'
+  | 'invalid-depth'
+  | 'depth-out-of-range'
+  | 'missing-source'
+  | 'empty-values'
+
+export interface LabDataIssue {
+  id: string
+  kind: LabIssueKind
+  code: string
+  testId: string
+  sample: string
+  title: string
+  detail: string
+}
+
+export const LAB_ISSUE_LABELS: Record<LabIssueKind, string> = {
+  'missing-sample': 'Нет номера образца',
+  'duplicate-sample': 'Повтор номера образца',
+  'missing-borehole': 'Не указана скважина',
+  'unknown-borehole': 'Скважина не найдена',
+  'missing-depth': 'Не указана глубина',
+  'invalid-depth': 'Некорректная глубина',
+  'depth-out-of-range': 'Глубже последней подошвы',
+  'missing-source': 'Нет отчёта или протокола',
+  'empty-values': 'Нет значений характеристик'
+}
+
+export function getLabTestIssues(columns: Borehole[], code: string, passport: IgePassport | null | undefined): LabDataIssue[] {
+  const tests = passport?.labTests || []
+  const sampleCounts = new Map<string, number>()
+  for (const test of tests) {
+    const sample = test.sample.trim().toLocaleUpperCase('ru-RU')
+    if (sample) sampleCounts.set(sample, (sampleCounts.get(sample) || 0) + 1)
+  }
+  const issues: LabDataIssue[] = []
+  const add = (test: LabTest, kind: LabIssueKind, detail: string) => {
+    const sample = test.sample.trim() || 'Без номера'
+    issues.push({
+      id: `lab-${kind}-${test.id}`,
+      kind,
+      code,
+      testId: test.id,
+      sample,
+      title: `${sample}: ${LAB_ISSUE_LABELS[kind]}`,
+      detail
+    })
+  }
+  for (const test of tests) {
+    const normalizedSample = test.sample.trim().toLocaleUpperCase('ru-RU')
+    if (!normalizedSample) add(test, 'missing-sample', 'Укажите номер или обозначение образца из лабораторного документа.')
+    else if ((sampleCounts.get(normalizedSample) || 0) > 1) add(test, 'duplicate-sample', 'Такой номер уже используется для другого образца этого ИГЭ. Проверьте, не продублирована ли запись.')
+    const column = test.boreholeId ? columns.find(item => item.id === test.boreholeId) : null
+    if (!test.boreholeId) add(test, 'missing-borehole', 'Выберите скважину, из которой отобран образец.')
+    else if (!column) add(test, 'unknown-borehole', 'Ссылка на скважину отсутствует в текущем проекте. Выберите скважину вручную.')
+    if (test.depth === null) add(test, 'missing-depth', 'Укажите глубину отбора образца.')
+    else if (!Number.isFinite(test.depth) || test.depth <= 0) add(test, 'invalid-depth', 'Глубина отбора должна быть положительным конечным числом.')
+    else if (column?.layers.length) {
+      const maximumDepth = Math.max(...column.layers.map(layer => layer.depth).filter(Number.isFinite))
+      if (Number.isFinite(maximumDepth) && test.depth > maximumDepth) {
+        add(test, 'depth-out-of-range', `Глубина ${test.depth.toFixed(2).replace('.', ',')} м больше последней подошвы ${maximumDepth.toFixed(2).replace('.', ',')} м. Это предупреждение для ручной проверки, а не автоматическое исправление.`)
+      }
+    }
+    if (!test.source.trim()) add(test, 'missing-source', 'Укажите отчёт, протокол или другой источник результата.')
+    if (!SOIL_CHARACTERISTICS.some(property => Number.isFinite(test.values[property.key]))) {
+      add(test, 'empty-values', 'Для образца не заполнено ни одной характеристики.')
+    }
+  }
+  return issues
+}
+
+export function getProjectLabIssues(project: GeoProject): LabDataIssue[] {
+  return Object.entries(project.igePassports || {}).flatMap(([code, passport]) => getLabTestIssues(project.columns, code, passport))
+}
+
 export type IssueKind = 'missing-name' | 'ambiguous-code' | 'missing-code' | 'invalid-depth' | 'depth-order'
 
 export interface GeoIssue {
@@ -256,6 +336,7 @@ export interface CodeSummaryItem {
   characteristicFilled: number
   characteristicTotal: number
   labTestCount: number
+  labIssueCount: number
   boreholeId: string
   layerId: string
 }
@@ -322,6 +403,7 @@ export function getLayerThickness(layers: Layer[], index: number): number {
 export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
   type Group = CodeSummaryItem & { boreholeIds: Set<string>; variantSet: Set<string>; targetHasIssue: boolean; thicknessSum: number }
   const groups = new Map<string, Group>()
+  const projectLabIssues = getProjectLabIssues(project)
   for (const column of project.columns) {
     if (column.isExcluded) continue
     for (const [layerIndex, layer] of column.layers.entries()) {
@@ -350,6 +432,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
           characteristicFilled: characteristicCoverage.filled,
           characteristicTotal: characteristicCoverage.total,
           labTestCount: project.igePassports?.[key]?.labTests?.length || 0,
+          labIssueCount: projectLabIssues.filter(issue => issue.code === key).length,
           boreholeId: column.id,
           layerId: layer.id,
           boreholeIds: new Set(),
@@ -392,6 +475,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     characteristicFilled: group.characteristicFilled,
     characteristicTotal: group.characteristicTotal,
     labTestCount: group.labTestCount,
+    labIssueCount: group.labIssueCount,
     boreholeId: group.boreholeId,
     layerId: group.layerId
   })).sort((a, b) => {

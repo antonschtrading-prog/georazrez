@@ -9,7 +9,7 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getCodeSummary, getIgeKey, getIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getCodeSummary, getIgeKey, getIssues, getLabTestIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -83,6 +83,9 @@ export default function App() {
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeCodeKey = selectedLayer ? getIgeKey(selectedLayer.ige) : null
   const selectedPassport = activeCodeKey && activeCodeKey !== '__unassigned__' ? project?.igePassports?.[activeCodeKey] || null : null
+  const selectedLabIssues = project && activeCodeKey && activeCodeKey !== '__unassigned__'
+    ? getLabTestIssues(project.columns, activeCodeKey, selectedPassport)
+    : []
   const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
     ? project.columns.reduce((sum, column) => sum + column.layers.filter(layer => getIgeKey(layer.ige) === activeCodeKey).length, 0)
     : 0
@@ -509,13 +512,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name }))} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name }))} labIssues={selectedLabIssues} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.11</span>
+        <span>Прототип 0.12</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

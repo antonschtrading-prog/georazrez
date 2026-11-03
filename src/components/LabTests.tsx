@@ -1,6 +1,6 @@
 import { useState, type FocusEvent } from 'react'
-import { FlaskConical, Plus, Trash2 } from 'lucide-react'
-import { getLabStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
+import { AlertTriangle, FlaskConical, Plus, Trash2 } from 'lucide-react'
+import { getLabStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataIssue, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface BoreholeOption {
   id: string
@@ -11,6 +11,7 @@ interface Props {
   code: string
   passport: IgePassport | null
   boreholes: BoreholeOption[]
+  issues: LabDataIssue[]
   disabled: boolean
   onAdd: (code: string) => void
   onDelete: (code: string, testId: string) => void
@@ -22,10 +23,12 @@ const formatStatistic = (value: number | null) => value === null
   ? '—'
   : Number(value.toFixed(3)).toString().replace('.', ',')
 
-export function LabTests({ code, passport, boreholes, disabled, onAdd, onDelete, onTestChange, onValueChange }: Props) {
+export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, onDelete, onTestChange, onValueChange }: Props) {
   const [error, setError] = useState('')
   const tests = passport?.labTests || []
   const statistics = getLabStatistics(passport)
+  const affectedTestIds = new Set(issues.map(issue => issue.testId))
+  const filledValues = tests.reduce((sum, test) => sum + SOIL_CHARACTERISTICS.filter(property => Number.isFinite(test.values[property.key])).length, 0)
 
   const updateNumber = (
     event: FocusEvent<HTMLInputElement>,
@@ -55,6 +58,12 @@ export function LabTests({ code, passport, boreholes, disabled, onAdd, onDelete,
       <span>{tests.length} образцов</span>
     </div>
     <p>Каждая строка — отдельный образец. Статистика используется как справка и не меняет принятые характеристики автоматически.</p>
+    <div className={`lab-quality ${issues.length ? 'has-issues' : 'clear'}`}>
+      <div><strong>{tests.length - affectedTestIds.size} / {tests.length}</strong><span>образцов без замечаний</span></div>
+      <div><strong>{filledValues} / {tests.length * SOIL_CHARACTERISTICS.length}</strong><span>значений заполнено</span></div>
+      <div><strong>{issues.length}</strong><span>замечаний контроля</span></div>
+    </div>
+    <p className="lab-quality-note">Контроль проверяет полноту, ссылки и диапазон глубины. Достоверность физических значений оценивает инженер.</p>
     <button type="button" className="button secondary lab-add-button" disabled={disabled} onClick={() => { setError(''); onAdd(code) }}>
       <Plus size={14} /> Добавить испытание
     </button>
@@ -64,11 +73,15 @@ export function LabTests({ code, passport, boreholes, disabled, onAdd, onDelete,
       {tests.map((test, testIndex) => {
         const valueCount = SOIL_CHARACTERISTICS.filter(property => Number.isFinite(test.values[property.key])).length
         const testName = test.sample.trim() || `Испытание ${testIndex + 1}`
-        return <article className="lab-test" key={test.id}>
+        const testIssues = issues.filter(issue => issue.testId === test.id)
+        return <article className={`lab-test ${testIssues.length ? 'has-issues' : ''}`} key={test.id}>
           <div className="lab-test-heading">
             <strong>{testName}</strong>
             <button type="button" disabled={disabled} onClick={() => onDelete(code, test.id)} aria-label={`Удалить ${testName}`} title="Удалить испытание; действие можно отменить"><Trash2 size={13} /></button>
           </div>
+          {testIssues.length > 0 && <div className="lab-test-issues" aria-label={`Замечания: ${testName}`}>
+            {testIssues.map(issue => <div className="lab-test-issue" key={issue.id} title={issue.detail}><AlertTriangle size={12} /><span>{issue.title}</span></div>)}
+          </div>}
           <div className="lab-test-meta">
             <label><span>Номер образца</span><input
               key={`${test.id}-sample-${test.sample}`}

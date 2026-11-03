@@ -73,6 +73,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <th>Проблемы</th>
               <th>Характеристики</th>
               <th>Испытания</th>
+              <th>Лаб. контроль</th>
             </tr></thead>
             <tbody>{codeSummary.map(item => <tr key={item.key} className={item.key === activeCodeKey ? 'active' : ''}>
               <td>
@@ -89,6 +90,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <td className={item.issueCount ? 'has-issues' : ''}>{item.issueCount}</td>
               <td title="Заполнено нормативных и расчётных значений">{item.characteristicFilled} / {item.characteristicTotal}</td>
               <td>{item.labTestCount}</td>
+              <td className={item.labIssueCount ? 'has-issues' : ''} title="Замечания полноты и целостности лабораторных данных">{item.labIssueCount}</td>
             </tr>)}</tbody>
           </table>
           {!codeSummary.length && <div className="issue-empty">В активных скважинах нет слоёв.</div>}
