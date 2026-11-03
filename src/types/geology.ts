@@ -75,10 +75,33 @@ export interface ActivityItem {
   at: string
 }
 
+export const SOIL_CHARACTERISTICS = [
+  { key: 'density', group: 'Физические', label: 'Плотность грунта ρ', unit: 'г/см³' },
+  { key: 'particleDensity', group: 'Физические', label: 'Плотность частиц грунта ρs', unit: 'г/см³' },
+  { key: 'dryDensity', group: 'Физические', label: 'Плотность сухого грунта ρd', unit: 'г/см³' },
+  { key: 'moisture', group: 'Физические', label: 'Влажность w', unit: '%' },
+  { key: 'voidRatio', group: 'Физические', label: 'Коэффициент пористости e', unit: '—' },
+  { key: 'plasticityIndex', group: 'Физические', label: 'Число пластичности Ip', unit: '%' },
+  { key: 'liquidityIndex', group: 'Физические', label: 'Показатель текучести IL', unit: '—' },
+  { key: 'cohesion', group: 'Прочностные', label: 'Удельное сцепление c', unit: 'кПа' },
+  { key: 'frictionAngle', group: 'Прочностные', label: 'Угол внутреннего трения φ', unit: '°' },
+  { key: 'deformationModulus', group: 'Деформационные', label: 'Модуль деформации E', unit: 'МПа' }
+] as const
+
+export type SoilCharacteristicKey = typeof SOIL_CHARACTERISTICS[number]['key']
+export type SoilCharacteristicField = 'standard' | 'design' | 'source'
+
+export interface SoilCharacteristicRecord {
+  standard: number | null
+  design: number | null
+  source: string
+}
+
 export interface IgePassport {
   name: string
   description: string
   notes: string
+  characteristics?: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
 }
 
 export interface GeoProject {
@@ -124,6 +147,18 @@ export function formatPk(value: number) {
 
 export function getIgeKey(code: string): string {
   return code.trim().toLocaleUpperCase('ru-RU') || '__unassigned__'
+}
+
+export function getCharacteristicCoverage(passport: IgePassport | null | undefined) {
+  let filled = 0
+  let sourced = 0
+  for (const property of SOIL_CHARACTERISTICS) {
+    const record = passport?.characteristics?.[property.key]
+    if (record && Number.isFinite(record.standard)) filled += 1
+    if (record && Number.isFinite(record.design)) filled += 1
+    if (record?.source.trim()) sourced += 1
+  }
+  return { filled, sourced, total: SOIL_CHARACTERISTICS.length * 2 }
 }
 
 export interface LayerNeighborMatch {
@@ -183,6 +218,8 @@ export interface CodeSummaryItem {
   averageThickness: number
   manualCount: number
   issueCount: number
+  characteristicFilled: number
+  characteristicTotal: number
   boreholeId: string
   layerId: string
 }
@@ -258,6 +295,7 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
       const thickness = getLayerThickness(column.layers, layerIndex)
       let group = groups.get(key)
       if (!group) {
+        const characteristicCoverage = getCharacteristicCoverage(project.igePassports?.[key])
         group = {
           key,
           code: rawCode || '—',
@@ -273,6 +311,8 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
           thicknessSum: 0,
           manualCount: 0,
           issueCount: 0,
+          characteristicFilled: characteristicCoverage.filled,
+          characteristicTotal: characteristicCoverage.total,
           boreholeId: column.id,
           layerId: layer.id,
           boreholeIds: new Set(),
@@ -312,6 +352,8 @@ export function getCodeSummary(project: GeoProject): CodeSummaryItem[] {
     averageThickness: group.thicknessSum / group.layerCount,
     manualCount: group.manualCount,
     issueCount: group.issueCount,
+    characteristicFilled: group.characteristicFilled,
+    characteristicTotal: group.characteristicTotal,
     boreholeId: group.boreholeId,
     layerId: group.layerId
   })).sort((a, b) => {

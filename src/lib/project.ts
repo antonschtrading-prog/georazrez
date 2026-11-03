@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, getCodeSummary, getIgeKey, getLayerDepthIssue, getLayerThickness, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { formatPk, getCodeSummary, getIgeKey, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -8,6 +8,10 @@ const exportStatus: Record<CodeStatus, string> = {
   ambiguous: 'Требует ручного выбора',
   'not-found': 'ИГЭ не найден',
   manual: 'Подтверждено вручную'
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || typeof value === 'number' && Number.isFinite(value)
 }
 
 function numericCell(value: ExcelJS.CellValue): number | null {
@@ -161,9 +165,11 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Макс. мощность, м', key: 'maxThickness', width: 18 },
     { header: 'Средняя мощность, м', key: 'averageThickness', width: 21 },
     { header: 'Ручных решений', key: 'manual', width: 18 },
-    { header: 'Нерешённых проблем', key: 'issues', width: 22 }
+    { header: 'Нерешённых проблем', key: 'issues', width: 22 },
+    { header: 'Заполнено характеристик', key: 'characteristics', width: 25 }
   ]
-  for (const item of getCodeSummary(project)) {
+  const summaryItems = getCodeSummary(project)
+  for (const item of summaryItems) {
     const passport = project.igePassports?.[item.key]
     const row = codeSummary.addRow({
       code: item.code,
@@ -179,14 +185,50 @@ export async function exportWorkbook(project: GeoProject) {
       maxThickness: item.maxThickness,
       averageThickness: item.averageThickness,
       manual: item.manualCount,
-      issues: item.issueCount
+      issues: item.issueCount,
+      characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`
     })
     for (let columnIndex = 8; columnIndex <= 12; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'N1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'O1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
+  characteristics.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 16 },
+    { header: 'Наименование ИГЭ', key: 'name', width: 30 },
+    { header: 'Группа', key: 'group', width: 20 },
+    { header: 'Характеристика', key: 'property', width: 38 },
+    { header: 'Единица', key: 'unit', width: 14 },
+    { header: 'Нормативное значение', key: 'standard', width: 24 },
+    { header: 'Расчётное значение', key: 'design', width: 22 },
+    { header: 'Источник', key: 'source', width: 48 }
+  ]
+  for (const item of summaryItems) {
+    if (item.key === '__unassigned__') continue
+    const passport = project.igePassports?.[item.key]
+    for (const property of SOIL_CHARACTERISTICS) {
+      const record = passport?.characteristics?.[property.key]
+      const row = characteristics.addRow({
+        code: item.code,
+        name: passport?.name || '',
+        group: property.group,
+        property: property.label,
+        unit: property.unit,
+        standard: record?.standard ?? null,
+        design: record?.design ?? null,
+        source: record?.source || ''
+      })
+      row.getCell(6).numFmt = '0.000'
+      row.getCell(7).numFmt = '0.000'
+    }
+  }
+  characteristics.getRow(1).font = { bold: true }
+  characteristics.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  characteristics.autoFilter = { from: 'A1', to: 'H1' }
+  characteristics.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')
   control.columns = [
@@ -245,7 +287,16 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
   }
   if (parsed.igePassports !== undefined && (
     !parsed.igePassports || typeof parsed.igePassports !== 'object' || Array.isArray(parsed.igePassports) ||
-    Object.values(parsed.igePassports).some(passport => !passport || typeof passport.name !== 'string' || typeof passport.description !== 'string' || typeof passport.notes !== 'string')
+    Object.values(parsed.igePassports).some(passport =>
+      !passport || typeof passport.name !== 'string' || typeof passport.description !== 'string' || typeof passport.notes !== 'string' ||
+      (passport.characteristics !== undefined && (
+        !passport.characteristics || typeof passport.characteristics !== 'object' || Array.isArray(passport.characteristics) ||
+        Object.entries(passport.characteristics).some(([key, record]) =>
+          !SOIL_CHARACTERISTICS.some(property => property.key === key) || !record ||
+          !isNullableFiniteNumber(record.standard) || !isNullableFiniteNumber(record.design) || typeof record.source !== 'string'
+        )
+      ))
+    )
   )) {
     throw new Error('В проекте повреждены паспорта ИГЭ')
   }

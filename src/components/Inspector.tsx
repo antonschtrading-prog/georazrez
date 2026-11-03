@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, type FocusEvent } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { formatPk, getLayerDepthIssue, getLayerThickness, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors } from '@/types/geology'
+import { formatPk, getCharacteristicCoverage, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface Props {
   column: Borehole
@@ -10,7 +10,8 @@ interface Props {
   igeLayerCount: number
   layerNeighbors: LayerNeighbors
   onNeighborSelect: (boreholeId: string, layerId: string) => void
-  onPassportChange: (code: string, field: keyof IgePassport, value: string) => void
+  onPassportChange: (code: string, field: 'name' | 'description' | 'notes', value: string) => void
+  onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
   onLayerSelect: (id: string) => void
   onLayerAdd: (depth: number, code: string) => void
   onLayerDelete: (layerId: string) => void
@@ -29,18 +30,44 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [addDepth, setAddDepth] = useState('1,00')
   const [addCode, setAddCode] = useState('')
   const [addError, setAddError] = useState('')
+  const [characteristicError, setCharacteristicError] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
   const hasIssues = !column.sourceNamed || column.layers.some((layer, index) => getLayerDepthIssue(column.layers, index) || layer.status === 'ambiguous' || layer.status === 'not-found')
+  const characteristicCoverage = getCharacteristicCoverage(igePassport)
+  const characteristicGroups = [...new Set(SOIL_CHARACTERISTICS.map(item => item.group))]
+
+  const updateCharacteristicValue = (
+    event: FocusEvent<HTMLInputElement>,
+    property: SoilCharacteristicKey,
+    field: 'standard' | 'design',
+    previous: number | null | undefined
+  ) => {
+    const raw = event.target.value.trim()
+    const previousValue = previous ?? null
+    if (!raw) {
+      setCharacteristicError('')
+      if (previousValue !== null) onCharacteristicChange(passportCode, property, field, null)
+      return
+    }
+    const parsed = Number(raw.replace(',', '.'))
+    if (!Number.isFinite(parsed)) {
+      setCharacteristicError('Значение характеристики должно быть конечным числом. Пустое поле очищает значение.')
+      event.target.value = String(previousValue ?? '').replace('.', ',')
+      return
+    }
+    setCharacteristicError('')
+    if (parsed !== previousValue) onCharacteristicChange(passportCode, property, field, parsed)
+  }
 
   const insertionBounds = () => {
     const index = selectedLayer ? column.layers.findIndex(layer => layer.id === selectedLayer.id) : column.layers.length - 1
@@ -75,7 +102,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
   const renderNeighbor = (neighbor: LayerNeighbor | null, label: string) => <div className="neighbor-row">
     <div className="neighbor-meta"><span>{label}</span><strong>{neighbor?.name || 'Нет активной скважины'}</strong>{neighbor && <small>ПК {formatPk(neighbor.pk)}</small>}</div>
     <div className="neighbor-matches">
-      {neighbor?.matches.map(match => <button type="button" key={match.layerId} onClick={() => onNeighborSelect(neighbor.boreholeId, match.layerId)} aria-label={`Перейти к соседнему слою ${neighbor.name}, ${match.depth.toFixed(2).replace('.', ',')} м`}>
+      {neighbor?.matches.map(match => <button type="button" key={match.layerId} onClick={() => { setCharacteristicError(''); onNeighborSelect(neighbor.boreholeId, match.layerId) }} aria-label={`Перейти к соседнему слою ${neighbor.name}, ${match.depth.toFixed(2).replace('.', ',')} м`}>
         {passportCode} · {match.depth.toFixed(2).replace('.', ',')} м
       </button>)}
       {neighbor && !neighbor.matches.length && <span>Код у соседа не найден</span>}
@@ -134,7 +161,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
                 <div
                   key={layer.id}
                   className={`layer-row ${selectedLayerId === layer.id ? 'active' : ''} ${hasIssue ? 'has-issue' : ''}`}
-                  onClick={() => onLayerSelect(layer.id)}
+                  onClick={() => { setCharacteristicError(''); onLayerSelect(layer.id) }}
                 >
                   <div className="layer-main">
                     <span className="layer-number">{index + 1}</span>
@@ -230,6 +257,52 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
             placeholder="Особые условия залегания или оговорки"
             onBlur={event => { if (event.target.value !== (igePassport?.notes || '')) onPassportChange(passportCode, 'notes', event.target.value) }}
           />
+
+          <div className="characteristics-heading">
+            <div><h4>Характеристики грунта</h4><span>Нормативные и расчётные значения раздельно</span></div>
+            <strong>{characteristicCoverage.filled} / {characteristicCoverage.total}</strong>
+          </div>
+          <p className="characteristics-note">Значения не рассчитываются из других полей и не извлекаются из DXF. Указывайте источник лабораторных или принятых данных.</p>
+          {characteristicError && <div className="import-error characteristic-error" role="alert">{characteristicError}</div>}
+          {characteristicGroups.map(group => <section className="characteristic-group" key={group} aria-label={`${group} характеристики`}>
+            <h4>{group}</h4>
+            {SOIL_CHARACTERISTICS.filter(property => property.group === group).map(property => {
+              const record = igePassport?.characteristics?.[property.key]
+              return <div className="characteristic-row" key={property.key}>
+                <div className="characteristic-label"><strong>{property.label}</strong><span>{property.unit}</span></div>
+                <div className="characteristic-value-grid">
+                  <label><span>Нормативное</span><input
+                    key={`${passportCode}-${property.key}-standard-${record?.standard ?? 'empty'}`}
+                    defaultValue={String(record?.standard ?? '').replace('.', ',')}
+                    inputMode="decimal"
+                    disabled={disabled}
+                    aria-label={`${property.label}, нормативное значение`}
+                    onBlur={event => updateCharacteristicValue(event, property.key, 'standard', record?.standard)}
+                    onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                  /></label>
+                  <label><span>Расчётное</span><input
+                    key={`${passportCode}-${property.key}-design-${record?.design ?? 'empty'}`}
+                    defaultValue={String(record?.design ?? '').replace('.', ',')}
+                    inputMode="decimal"
+                    disabled={disabled}
+                    aria-label={`${property.label}, расчётное значение`}
+                    onBlur={event => updateCharacteristicValue(event, property.key, 'design', record?.design)}
+                    onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                  /></label>
+                </div>
+                <input
+                  key={`${passportCode}-${property.key}-source-${record?.source || ''}`}
+                  className="characteristic-source"
+                  defaultValue={record?.source || ''}
+                  disabled={disabled}
+                  placeholder="Источник: отчёт, таблица, пункт"
+                  aria-label={`${property.label}, источник`}
+                  onBlur={event => { if (event.target.value !== (record?.source || '')) onCharacteristicChange(passportCode, property.key, 'source', event.target.value) }}
+                  onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                />
+              </div>
+            })}
+          </section>)}
         </section>}
 
         {column.excluded.length > 0 && <details className="excluded-details">

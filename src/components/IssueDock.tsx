@@ -71,6 +71,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <th>Мощность, м · min–max / Ø</th>
               <th>Вручную</th>
               <th>Проблемы</th>
+              <th>Характеристики</th>
             </tr></thead>
             <tbody>{codeSummary.map(item => <tr key={item.key} className={item.key === activeCodeKey ? 'active' : ''}>
               <td>
@@ -85,6 +86,7 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
               <td>{formatDepth(item.minThickness)}–{formatDepth(item.maxThickness)} · Ø {formatDepth(item.averageThickness)}</td>
               <td>{item.manualCount}</td>
               <td className={item.issueCount ? 'has-issues' : ''}>{item.issueCount}</td>
+              <td title="Заполнено нормативных и расчётных значений">{item.characteristicFilled} / {item.characteristicTotal}</td>
             </tr>)}</tbody>
           </table>
           {!codeSummary.length && <div className="issue-empty">В активных скважинах нет слоёв.</div>}
