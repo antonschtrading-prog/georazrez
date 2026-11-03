@@ -22,6 +22,7 @@ export default function App() {
   const [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState('borehole-1')
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null)
   const [fitToken, setFitToken] = useState(0)
   const [focusToken, setFocusToken] = useState(0)
   const [showLabels, setShowLabels] = useState(true)
@@ -62,6 +63,7 @@ export default function App() {
   const issues = useMemo(() => project ? getIssues(project) : [], [project])
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
+  const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
 
@@ -114,9 +116,23 @@ export default function App() {
   }
 
   const selectIssue = (issue: GeoIssue) => {
+    const index = issues.findIndex(item => item.id === issue.id)
+    setReviewIndex(index >= 0 ? index : null)
     setSelectedId(issue.boreholeId)
     setSelectedLayerId(issue.layerId || null)
     setFocusToken(value => value + 1)
+  }
+
+  const stepIssue = (direction: -1 | 1) => {
+    if (!issues.length) return
+    const selectedIndex = issues.findIndex(issue => issue.id === activeIssueId)
+    let nextIndex: number
+    if (selectedIndex >= 0) nextIndex = (selectedIndex + direction + issues.length) % issues.length
+    else if (reviewIndex !== null) nextIndex = direction > 0
+      ? Math.min(Math.max(reviewIndex, 0), issues.length - 1)
+      : Math.max(Math.min(reviewIndex - 1, issues.length - 1), 0)
+    else nextIndex = direction > 0 ? 0 : issues.length - 1
+    selectIssue(issues[nextIndex])
   }
 
   const renameSelected = (name: string) => {
@@ -243,6 +259,7 @@ export default function App() {
     setFuture([])
     setSelectedId(next.columns[0]?.id || '')
     setSelectedLayerId(null)
+    setReviewIndex(null)
     setFitToken(value => value + 1)
     toast.success(`Проект построен: ${next.columns.length} колонок`)
   }
@@ -254,6 +271,7 @@ export default function App() {
     setFuture([])
     setSelectedId(next.columns.find(column => !column.isExcluded)?.id || next.columns[0]?.id || '')
     setSelectedLayerId(null)
+    setReviewIndex(null)
     setFitToken(value => value + 1)
     toast.success(`Проект «${next.title}» открыт`)
   }
@@ -310,8 +328,8 @@ export default function App() {
             <div><strong>{project.columns.filter(c => c.sourceNamed).length}</strong><span>имён из DXF</span></div>
             <span className="real-data-badge">Реальные исходники</span>
           </div>
-          <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={issues} activity={project.activity} onSelect={selectIssue} />
+          <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
+          <IssueDock issues={issues} activity={project.activity} activeIssueId={activeIssueId} onSelect={selectIssue} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
         {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} />}
@@ -320,7 +338,7 @@ export default function App() {
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.3</span>
+        <span>Прототип 0.4</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

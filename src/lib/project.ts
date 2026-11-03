@@ -1,6 +1,14 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { formatPk, type ActivityItem, type GeoProject } from '@/types/geology'
+import { formatPk, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+
+const exportStatus: Record<CodeStatus, string> = {
+  topology: 'По границам DXF',
+  'vertical-only': 'По положению кружка',
+  ambiguous: 'Требует ручного выбора',
+  'not-found': 'ИГЭ не найден',
+  manual: 'Подтверждено вручную'
+}
 
 function numericCell(value: ExcelJS.CellValue): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -106,20 +114,22 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Глубина подошвы слоя, м', key: 'depth', width: 24 },
     { header: 'Код ИГЭ', key: 'ige', width: 14 },
     { header: 'X', key: 'x', width: 18 },
-    { header: 'Y', key: 'y', width: 18 }
+    { header: 'Y', key: 'y', width: 18 },
+    { header: 'Статус проверки', key: 'status', width: 26 },
+    { header: 'Источник решения', key: 'source', width: 32 }
   ]
   for (const column of project.columns) {
     if (column.isExcluded) continue
     for (const layer of column.layers) {
       sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth, ige: layer.ige,
-        x: column.coordX ?? '', y: column.coordY ?? ''
+        x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
       })
     }
   }
   sheet.getRow(1).font = { bold: true }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.autoFilter = { from: 'A1', to: 'F1' }
+  sheet.autoFilter = { from: 'A1', to: 'H1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const control = workbook.addWorksheet('Контроль колонок')

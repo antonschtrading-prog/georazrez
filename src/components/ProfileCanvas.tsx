@@ -11,13 +11,14 @@ interface Props {
   selectedLayer: Layer | null
   onSelect: (id: string) => void
   onDepthChange: (layerId: string, depth: number) => void
+  onCandidateSelect: (code: string) => void
   showLabels: boolean
   showCodes: boolean
   fitToken: number
   focusToken: number
 }
 
-export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, onDepthChange, showLabels, showCodes, fitToken, focusToken }: Props) {
+export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
@@ -180,6 +181,28 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, on
             </g>
           )
         })}
+        {selected && selectedLayer && selectedLayer.status === 'ambiguous' && detail && !selected.isExcluded && <g transform="scale(1,-1)" className="candidate-hit-targets">
+          {selectedLayer.candidates.map((candidate, index) => {
+            const circle = project.geometry.circles.find(item => item.x === candidate.x && item.y === candidate.y)
+            return <circle
+              key={`candidate-hit-${candidate.x}-${candidate.y}-${index}`}
+              cx={candidate.x} cy={candidate.y} r={(circle?.r || 1.5) + 0.7}
+              data-code={candidate.code}
+              tabIndex={0}
+              role="button"
+              aria-label={`Подтвердить ИГЭ ${candidate.code}`}
+              onClick={event => { event.stopPropagation(); onCandidateSelect(candidate.code) }}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onCandidateSelect(candidate.code)
+                }
+              }}
+            >
+              <title>Подтвердить ИГЭ {candidate.code} для глубины {selectedLayer.depth.toFixed(2).replace('.', ',')} м</title>
+            </circle>
+          })}
+        </g>}
         {selected && selectedLayer && detail && !selected.isExcluded && <g transform="scale(1,-1)" className={`layer-depth-editor ${dragDepth !== null ? 'dragging' : ''}`}>
           <line className="depth-drag-visible" x1={selected.x - 3} y1={displayedLayerY} x2={selected.x + 3} y2={displayedLayerY} vectorEffect="non-scaling-stroke" />
           <circle className="depth-drag-handle" cx={selected.x + 3} cy={displayedLayerY} r={0.85} vectorEffect="non-scaling-stroke" />
