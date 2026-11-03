@@ -92,6 +92,8 @@
 .button.secondary:hover { background: var(--gray-90); }
 .icon-button { width: 38px; padding: 0; background: transparent; color: var(--ink-soft); }
 .icon-button:hover { background: var(--gray-90); color: var(--ink); }
+.icon-button:disabled { opacity: .3; cursor: default; background: transparent; transform: none; }
+.history-controls { display: flex; align-items: center; gap: 1px; padding-right: 7px; margin-right: 1px; border-right: 1px solid var(--line); }
 .export-menu { background: var(--panel-bg); border-color: var(--line); color: var(--ink); min-width: 210px; }
 .export-menu [role="menuitem"] { cursor: pointer; font-size: 13px; min-height: 38px; }
 .export-menu [role="menuitem"]:focus { background: var(--accent-lime); color: var(--ink); }
@@ -234,6 +236,11 @@
 .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: 0 16px 11px; }
 .section-title-row h3 { margin: 0; font-size: 12px; font-weight: 600; }
 .section-title-row span { color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.layer-section-actions { display: flex; align-items: center; gap: 3px; }
+.layer-section-actions > span { margin-right: 4px; }
+.layer-section-actions button { width: 27px; height: 27px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--ink-soft); }
+.layer-section-actions button:hover:not(:disabled) { background: var(--accent-lime); border-color: var(--accent-dark); color: var(--ink); }
+.layer-section-actions button:disabled { opacity: .3; cursor: default; }
 .layer-table-header { display: grid; grid-template-columns: 70px 56px 1fr; gap: 5px; padding: 0 12px 6px 43px; color: var(--muted-text); font-size: 8px; text-transform: uppercase; letter-spacing: .04em; }
 .layer-row { padding: 6px 9px; border-left: 2px solid transparent; transition: background-color 140ms ease-out; }
 .layer-row:hover { background: var(--gray-90); }
@@ -253,6 +260,7 @@
 .candidate-picker > div { display: flex; gap: 5px; }
 .candidate-picker button { min-width: 38px; min-height: 27px; padding: 0 8px; border: 1px solid var(--warning); border-radius: 3px; background: var(--panel-bg); color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .candidate-picker button:hover { background: var(--accent-lime); border-color: var(--accent-dark); }
+.empty-layers { padding: 24px 18px; color: var(--muted-text); font-size: 11px; line-height: 1.5; text-align: center; }
 .excluded-details { margin: 8px 16px 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .excluded-details summary { cursor: pointer; color: var(--muted-text); font-size: 10px; }
 .excluded-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--gray-90); }
@@ -275,9 +283,19 @@
 .exclude-dialog { max-width: 520px !important; background: var(--panel-bg); border-color: var(--line); color: var(--ink); }
 .exclude-dialog [data-slot="dialog-description"] { color: var(--muted-text); line-height: 1.5; }
 .reason-input { width: 100%; resize: vertical; min-height: 92px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-bg); color: var(--ink); font-size: 12px; line-height: 1.5; }
+.layer-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.danger-solid { background: var(--danger) !important; color: var(--panel-bg) !important; }
+.danger-solid:hover { background: oklch(45% .19 25) !important; }
 .geo-circles .candidate-circle { stroke: var(--warning); fill: oklch(61% .15 65 / .18); stroke-width: 2; }
 .candidate-links { stroke: var(--warning); stroke-width: 1.3; stroke-dasharray: 4 3; fill: none; pointer-events: none; }
 .candidate-links .selected-layer-boundary { stroke: var(--accent-dark); stroke-width: 2.4; stroke-dasharray: none; }
+.layer-depth-editor { pointer-events: none; }
+.depth-drag-visible { stroke: var(--accent-dark); stroke-width: 1.4; fill: none; }
+.depth-drag-handle { fill: var(--accent-lime); stroke: var(--accent-dark); stroke-width: 1.5; }
+.depth-drag-hit { stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: ns-resize; outline: none; }
+.depth-drag-hit:focus-visible { stroke: oklch(48% .12 116 / .2); }
+.layer-depth-editor.dragging .depth-drag-visible { stroke-width: 2.6; }
+.layer-depth-editor.dragging .depth-drag-handle { fill: var(--warning); }
 .saved-project-open { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; }
 .saved-project-open > span { flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .saved-project-open strong { font-size: 11px; font-weight: 500; }

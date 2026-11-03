@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, ArchiveX, Check, CircleDashed, Link2, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ArchiveX, Check, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatPk, type Borehole, type CodeStatus } from '@/types/geology'
 
@@ -7,6 +7,8 @@ interface Props {
   column: Borehole
   selectedLayerId: string | null
   onLayerSelect: (id: string) => void
+  onLayerAdd: (depth: number, code: string) => void
+  onLayerDelete: (layerId: string) => void
   onRename: (name: string) => void
   onDepthChange: (layerId: string, depth: number) => void
   onCodeChange: (layerId: string, code: string, status?: CodeStatus) => void
@@ -21,10 +23,46 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, onDepthChange, onCodeChange, onToggleExcluded }: Props) {
+export function Inspector({ column, selectedLayerId, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
+  const [addDepth, setAddDepth] = useState('1,00')
+  const [addCode, setAddCode] = useState('')
+  const [addError, setAddError] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const disabled = Boolean(column.isExcluded)
+  const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
+
+  const insertionBounds = () => {
+    const index = selectedLayer ? column.layers.findIndex(layer => layer.id === selectedLayer.id) : column.layers.length - 1
+    return {
+      previous: column.layers[index]?.depth ?? 0,
+      next: column.layers[index + 1]?.depth ?? Infinity
+    }
+  }
+
+  const openAdd = () => {
+    const { previous, next } = insertionBounds()
+    const suggested = Number.isFinite(next) ? (previous + next) / 2 : previous + 1
+    setAddDepth(suggested.toFixed(2).replace('.', ','))
+    setAddCode('')
+    setAddError('')
+    setAddOpen(true)
+  }
+
+  const submitAdd = () => {
+    const depth = Number(addDepth.replace(',', '.'))
+    const { previous, next } = insertionBounds()
+    if (!Number.isFinite(depth) || depth <= previous || depth >= next) {
+      setAddError(Number.isFinite(next)
+        ? `Глубина должна быть между ${previous.toFixed(2).replace('.', ',')} и ${next.toFixed(2).replace('.', ',')} м`
+        : `Глубина должна быть больше ${previous.toFixed(2).replace('.', ',')} м`)
+      return
+    }
+    onLayerAdd(Math.round(depth * 100) / 100, addCode.trim())
+    setAddOpen(false)
+  }
 
   return (
     <aside className="inspector-panel" aria-label="Свойства скважины">
@@ -40,10 +78,12 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, on
         <section className="property-section">
           <label className="field-label" htmlFor="borehole-name">Наименование</label>
           <input
+            key={`${column.id}-${column.name}`}
             id="borehole-name"
             className={`name-input ${!column.sourceNamed ? 'needs-attention' : ''}`}
-            value={column.name}
-            onChange={event => onRename(event.target.value)}
+            defaultValue={column.name}
+            onBlur={event => { if (event.target.value !== column.name) onRename(event.target.value) }}
+            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
             aria-label="Наименование скважины"
             disabled={disabled}
           />
@@ -56,7 +96,14 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, on
         </section>
 
         <section className="layers-section">
-          <div className="section-title-row"><h3>Подошвы слоёв</h3><span>{column.layers.length}</span></div>
+          <div className="section-title-row">
+            <h3>Подошвы слоёв</h3>
+            <div className="layer-section-actions">
+              <span>{column.layers.length}</span>
+              <button type="button" onClick={openAdd} disabled={disabled} aria-label="Добавить слой" title="Добавить подошву после выбранного слоя"><Plus size={14} /></button>
+              <button type="button" onClick={() => setDeleteOpen(true)} disabled={disabled || !selectedLayer} aria-label="Удалить выбранный слой" title="Удалить выбранную подошву"><Trash2 size={13} /></button>
+            </div>
+          </div>
           <div className="layer-table-header"><span>Глубина, м</span><span>ИГЭ</span><span>Статус</span></div>
           <div className="layer-rows">
             {column.layers.map((layer, index) => {
@@ -81,7 +128,7 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, on
                       onBlur={event => {
                         const value = Number(event.target.value.replace(',', '.'))
                         if (Number.isFinite(value) && value > 0 && value !== layer.depth) onDepthChange(layer.id, value)
-                        else event.target.value = String(layer.depth).replace('.', ',')
+                        event.target.value = String(layer.depth).replace('.', ',')
                       }}
                       onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
                     />
@@ -111,6 +158,7 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, on
                 </div>
               )
             })}
+            {!column.layers.length && <div className="empty-layers">В колонке нет расчётных подошв.<br />Добавьте первый слой вручную.</div>}
           </div>
         </section>
 
@@ -136,6 +184,25 @@ export function Inspector({ column, selectedLayerId, onLayerSelect, onRename, on
           <label className="field-label" htmlFor="exclusion-reason">Причина исключения</label>
           <textarea id="exclusion-reason" className="reason-input" value={reason} onChange={event => setReason(event.target.value)} placeholder="Например: вспомогательная колонка, не является скважиной" rows={4} />
           <div className="import-actions"><button type="button" className="button secondary" onClick={() => setExcludeOpen(false)}>Отмена</button><button type="button" className="button primary" disabled={!reason.trim()} onClick={() => { onToggleExcluded(reason.trim()); setReason(''); setExcludeOpen(false) }}>Подтвердить исключение</button></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="exclude-dialog layer-dialog">
+          <DialogHeader><DialogTitle>Добавить подошву слоя</DialogTitle><DialogDescription>{selectedLayer ? `Новый слой будет вставлен после глубины ${selectedLayer.depth.toFixed(2).replace('.', ',')} м.` : 'Новый слой будет добавлен в конец колонки.'} Исходные подписи DXF не изменяются.</DialogDescription></DialogHeader>
+          <div className="layer-form-grid">
+            <div><label className="field-label" htmlFor="new-layer-depth">Глубина подошвы, м</label><input id="new-layer-depth" className="name-input" inputMode="decimal" value={addDepth} onChange={event => setAddDepth(event.target.value)} autoFocus /></div>
+            <div><label className="field-label" htmlFor="new-layer-code">Код ИГЭ</label><input id="new-layer-code" className="name-input" value={addCode} onChange={event => setAddCode(event.target.value)} placeholder="Можно указать позже" /></div>
+          </div>
+          {addError && <div className="import-error" role="alert">{addError}</div>}
+          <div className="import-actions"><button type="button" className="button secondary" onClick={() => setAddOpen(false)}>Отмена</button><button type="button" className="button primary" onClick={submitAdd}>Добавить слой</button></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="exclude-dialog layer-dialog">
+          <DialogHeader><DialogTitle>Удалить выбранную подошву?</DialogTitle><DialogDescription>{selectedLayer ? `Будет удалён слой ${selectedLayer.depth.toFixed(2).replace('.', ',')} м${selectedLayer.ige ? `, ИГЭ ${selectedLayer.ige}` : ''}. Геометрия исходного DXF останется в проекте.` : 'Сначала выберите слой.'} Действие можно отменить через Ctrl+Z.</DialogDescription></DialogHeader>
+          <div className="import-actions"><button type="button" className="button secondary" onClick={() => setDeleteOpen(false)}>Отмена</button><button type="button" className="button primary danger-solid" disabled={!selectedLayer} onClick={() => { if (selectedLayer) onLayerDelete(selectedLayer.id); setDeleteOpen(false) }}>Удалить подошву</button></div>
         </DialogContent>
       </Dialog>
     </aside>

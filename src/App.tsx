@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, PanelRight, Save, Tags } from 'lucide-react'
+import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, PanelRight, Redo2, Save, Tags, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoreholeList } from '@/components/BoreholeList'
 import { Inspector } from '@/components/Inspector'
@@ -9,11 +9,15 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { getIssues, type CodeStatus, type GeoIssue, type GeoProject } from '@/types/geology'
+import { getIssues, type CodeStatus, type GeoIssue, type GeoProject, type Layer } from '@/types/geology'
 import './App.css'
+
+const HISTORY_LIMIT = 50
 
 export default function App() {
   const [project, setProject] = useState<GeoProject | null>(null)
+  const [past, setPast] = useState<GeoProject[]>([])
+  const [future, setFuture] = useState<GeoProject[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState('borehole-1')
@@ -61,6 +65,49 @@ export default function App() {
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
 
+  const commitProject = (updater: (current: GeoProject) => GeoProject) => {
+    if (!project) return
+    const next = updater(project)
+    if (next === project) return
+    setPast(items => [...items, project].slice(-HISTORY_LIMIT))
+    setFuture([])
+    setProject(next)
+  }
+
+  const undo = () => {
+    if (!project || !past.length) return
+    const previous = past[past.length - 1]
+    setPast(items => items.slice(0, -1))
+    setFuture(items => [project, ...items].slice(0, HISTORY_LIMIT))
+    setProject(addActivity(previous, 'Отменено последнее ручное действие'))
+    toast.success('Последнее действие отменено')
+  }
+
+  const redo = () => {
+    if (!project || !future.length) return
+    const next = future[0]
+    setFuture(items => items.slice(1))
+    setPast(items => [...items, project].slice(-HISTORY_LIMIT))
+    setProject(addActivity(next, 'Повторено отменённое действие'))
+    toast.success('Действие восстановлено')
+  }
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.matches('input, textarea') || target?.isContentEditable) return
+      if (!(event.ctrlKey || event.metaKey)) return
+      const key = event.key.toLowerCase()
+      if (key === 'z' || key === 'y') {
+        event.preventDefault()
+        if (key === 'y' || event.shiftKey) redo()
+        else undo()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [project, past, future])
+
   const selectBorehole = (id: string) => {
     setSelectedId(id)
     setSelectedLayerId(null)
@@ -74,16 +121,11 @@ export default function App() {
 
   const renameSelected = (name: string) => {
     if (!project || !selected) return
-    const wasUnnamed = !selected.sourceNamed
-    setProject(current => {
-      if (!current) return current
-      let next: GeoProject = {
-        ...current,
-        columns: current.columns.map(column => column.id === selected.id ? { ...column, name, sourceNamed: name.trim().length > 0 } : column)
-      }
-      if (wasUnnamed && name.trim()) next = addActivity(next, `Назначено имя скважины №${selected.index}: ${name.trim()}`)
-      return next
-    })
+    const previousName = selected.name
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? { ...column, name, sourceNamed: name.trim().length > 0 } : column)
+    }, `Скважина №${selected.index}: наименование изменено с «${previousName}» на «${name.trim() || 'без имени'}»`))
   }
 
   const changeDepth = (layerId: string, depth: number) => {
@@ -96,17 +138,15 @@ export default function App() {
       toast.error('Глубина должна возрастать от предыдущего слоя к следующему')
       return
     }
-    setProject(current => {
-      if (!current) return current
-      const nextProject: GeoProject = {
-        ...current,
-        columns: current.columns.map(column => column.id === selected.id ? {
-          ...column,
-          layers: column.layers.map(layer => layer.id === layerId ? { ...layer, depth, y: column.top - depth * 10 } : layer)
-        } : column)
-      }
-      return addActivity(nextProject, `${selected.name}: глубина слоя ${index + 1} изменена на ${String(depth).replace('.', ',')} м`)
-    })
+    const oldDepth = selected.layers[index].depth
+    if (depth === oldDepth) return
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? {
+        ...column,
+        layers: column.layers.map(layer => layer.id === layerId ? { ...layer, depth, y: column.top - depth * 10 } : layer)
+      } : column)
+    }, `${selected.name}: глубина слоя ${index + 1} изменена с ${String(oldDepth).replace('.', ',')} на ${String(depth).replace('.', ',')} м`))
     toast.success('Глубина обновлена')
   }
 
@@ -114,37 +154,78 @@ export default function App() {
     if (!project || !selected) return
     const layer = selected.layers.find(item => item.id === layerId)
     if (!layer) return
-    setProject(current => {
-      if (!current) return current
-      const nextProject: GeoProject = {
-        ...current,
-        columns: current.columns.map(column => column.id === selected.id ? {
-          ...column,
-          layers: column.layers.map(item => item.id === layerId ? {
-            ...item, ige: code, status: status || (code ? 'manual' : 'not-found'), source: code ? 'Ручное подтверждение' : 'Требует проверки'
-          } : item)
-        } : column)
-      }
-      return addActivity(nextProject, `${selected.name}, ${String(layer.depth).replace('.', ',')} м: ИГЭ ${code || 'не задан'}`)
-    })
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? {
+        ...column,
+        layers: column.layers.map(item => item.id === layerId ? {
+          ...item, ige: code, status: status || (code ? 'manual' : 'not-found'), source: code ? 'Ручное подтверждение' : 'Требует проверки'
+        } : item)
+      } : column)
+    }, `${selected.name}, ${String(layer.depth).replace('.', ',')} м: ИГЭ ${code || 'не задан'}`))
     if (code) toast.success(`ИГЭ ${code} подтверждён вручную`)
+  }
+
+  const addLayer = (depth: number, code: string) => {
+    if (!project || !selected || selected.isExcluded) return
+    const insertionIndex = selectedLayer ? selected.layers.findIndex(layer => layer.id === selectedLayer.id) + 1 : selected.layers.length
+    const previous = selected.layers[insertionIndex - 1]?.depth ?? 0
+    const next = selected.layers[insertionIndex]?.depth ?? Infinity
+    if (!Number.isFinite(depth) || depth <= previous || depth >= next) {
+      toast.error('Новая глубина нарушает порядок подошв')
+      return
+    }
+    const newId = `${selected.id}-manual-${Date.now()}`
+    const layer: Layer = {
+      id: newId,
+      depth,
+      y: selected.top - depth * 10,
+      ige: code,
+      status: code ? 'manual' : 'not-found',
+      candidates: [],
+      source: code ? 'Ручное добавление' : 'Новый слой: требуется ИГЭ'
+    }
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => {
+        if (column.id !== selected.id) return column
+        const layers = [...column.layers]
+        layers.splice(insertionIndex, 0, layer)
+        return { ...column, layers }
+      })
+    }, `${selected.name}: добавлена подошва ${String(depth).replace('.', ',')} м${code ? `, ИГЭ ${code}` : ', код ИГЭ требует проверки'}`))
+    setSelectedLayerId(newId)
+    toast.success('Подошва добавлена в расчётный проект')
+  }
+
+  const deleteLayer = (layerId: string) => {
+    if (!project || !selected || selected.isExcluded) return
+    const index = selected.layers.findIndex(layer => layer.id === layerId)
+    if (index < 0) return
+    const removed = selected.layers[index]
+    const nextSelected = selected.layers[index + 1]?.id || selected.layers[index - 1]?.id || null
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? {
+        ...column,
+        layers: column.layers.filter(layer => layer.id !== layerId)
+      } : column)
+    }, `${selected.name}: удалена подошва ${String(removed.depth).replace('.', ',')} м${removed.ige ? `, ИГЭ ${removed.ige}` : ''}`))
+    setSelectedLayerId(nextSelected)
+    toast.success('Подошва удалена; действие можно отменить')
   }
 
   const toggleSelectedExcluded = (reason: string) => {
     if (!project || !selected) return
     const excluding = !selected.isExcluded
-    setProject(current => {
-      if (!current) return current
-      const nextProject: GeoProject = {
-        ...current,
-        columns: current.columns.map(column => column.id === selected.id ? {
-          ...column,
-          isExcluded: excluding,
-          exclusionReason: excluding ? reason : ''
-        } : column)
-      }
-      return addActivity(nextProject, excluding ? `${selected.name}: исключена из расчёта. Причина: ${reason}` : `${selected.name}: возвращена в расчёт`)
-    })
+    commitProject(current => addActivity({
+      ...current,
+      columns: current.columns.map(column => column.id === selected.id ? {
+        ...column,
+        isExcluded: excluding,
+        exclusionReason: excluding ? reason : ''
+      } : column)
+    }, excluding ? `${selected.name}: исключена из расчёта. Причина: ${reason}` : `${selected.name}: возвращена в расчёт`))
     setSelectedLayerId(null)
     toast.success(excluding ? 'Колонка исключена из расчёта, исходная геометрия сохранена' : 'Колонка возвращена в расчёт')
   }
@@ -158,6 +239,8 @@ export default function App() {
   const importProject = async (dxf: File, axis: File) => {
     const next = await createProjectFromFiles(dxf, axis)
     setProject(next)
+    setPast([])
+    setFuture([])
     setSelectedId(next.columns[0]?.id || '')
     setSelectedLayerId(null)
     setFitToken(value => value + 1)
@@ -167,6 +250,8 @@ export default function App() {
   const openSavedProject = async (file: File) => {
     const next = await readProjectFile(file)
     setProject(next)
+    setPast([])
+    setFuture([])
     setSelectedId(next.columns.find(column => !column.isExcluded)?.id || next.columns[0]?.id || '')
     setSelectedLayerId(null)
     setFitToken(value => value + 1)
@@ -183,6 +268,10 @@ export default function App() {
         <div className="project-identity"><strong>{project.title}</strong><span>{project.sourceFile}</span></div>
         <div className="header-actions">
           <span className={`save-indicator ${saveState}`}><HardDrive size={14} />{saveState === 'saving' ? 'Сохранение…' : saveState === 'error' ? 'Не сохранено' : 'Сохранено локально'}</span>
+          <div className="history-controls" aria-label="История изменений">
+            <button type="button" className="icon-button" onClick={undo} disabled={!past.length} aria-label="Отменить действие" title="Отменить · Ctrl+Z"><Undo2 size={17} /></button>
+            <button type="button" className="icon-button" onClick={redo} disabled={!future.length} aria-label="Повторить действие" title="Повторить · Ctrl+Shift+Z"><Redo2 size={17} /></button>
+          </div>
           <button type="button" className="icon-button header-save" onClick={saveNow} aria-label="Сохранить проект" title="Сохранить проект"><Save size={17} /></button>
           <button type="button" className="button secondary import-button" onClick={() => setImportOpen(true)}><FolderInput size={16} /> Импорт</button>
           <DropdownMenu>
@@ -221,17 +310,17 @@ export default function App() {
             <div><strong>{project.columns.filter(c => c.sourceNamed).length}</strong><span>имён из DXF</span></div>
             <span className="real-data-badge">Реальные исходники</span>
           </div>
-          <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
+          <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
           <IssueDock issues={issues} activity={project.activity} onSelect={selectIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.2</span>
+        <span>Прототип 0.3</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

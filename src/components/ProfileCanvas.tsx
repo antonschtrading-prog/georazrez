@@ -3,25 +3,31 @@ import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react'
 import type { Borehole, GeoProject, Layer } from '@/types/geology'
 
 type View = { cx: number; cy: number; w: number; h: number }
+type DepthDrag = { pointerId: number; startY: number; startDepth: number; min: number; max: number; lastDepth: number }
 
 interface Props {
   project: GeoProject
   selectedId: string
   selectedLayer: Layer | null
   onSelect: (id: string) => void
+  onDepthChange: (layerId: string, depth: number) => void
   showLabels: boolean
   showCodes: boolean
   fitToken: number
   focusToken: number
 }
 
-export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
+export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, onDepthChange, showLabels, showCodes, fitToken, focusToken }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
+  const [dragDepth, setDragDepth] = useState<number | null>(null)
   const drag = useRef<{ x: number; y: number; view: View } | null>(null)
+  const depthDrag = useRef<DepthDrag | null>(null)
   const selected = project.columns.find(c => c.id === selectedId)
   const candidateKeys = new Set((selectedLayer?.candidates || []).map(candidate => `${candidate.x}|${candidate.y}`))
+  const displayedDepth = dragDepth ?? selectedLayer?.depth ?? 0
+  const displayedLayerY = selected && selectedLayer ? selected.top - displayedDepth * 10 : selectedLayer?.y ?? 0
 
   useEffect(() => {
     if (!host.current) return
@@ -32,6 +38,11 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, sh
     observer.observe(host.current)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    depthDrag.current = null
+    setDragDepth(null)
+  }, [project.id, selectedId, selectedLayer?.id])
 
   const fit = () => {
     const { minX, maxX, minY, maxY } = project.bounds
@@ -85,6 +96,15 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, sh
     }
   }, [project, view])
 
+  const layerLimits = () => {
+    if (!selected || !selectedLayer) return { min: 0.01, max: 1000 }
+    const index = selected.layers.findIndex(layer => layer.id === selectedLayer.id)
+    return {
+      min: (selected.layers[index - 1]?.depth ?? 0) + 0.01,
+      max: (selected.layers[index + 1]?.depth ?? selectedLayer.depth + 100) - 0.01
+    }
+  }
+
   const detail = view.w < 850
   const zoomPercent = Math.round(180 / view.w * 100)
   const viewBox = `${view.cx - view.w / 2} ${-view.cy - view.h / 2} ${view.w} ${view.h}`
@@ -128,8 +148,8 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, sh
             })}
           </g>}
           {selected && selectedLayer && detail && <g className="candidate-links">
-            {selectedLayer.candidates.map((candidate, index) => <line key={`${candidate.x}-${candidate.y}-${index}`} x1={selected.x} y1={selectedLayer.y} x2={candidate.x} y2={candidate.y} vectorEffect="non-scaling-stroke" />)}
-            <line className="selected-layer-boundary" x1={selected.x - 3} y1={selectedLayer.y} x2={selected.x + 3} y2={selectedLayer.y} vectorEffect="non-scaling-stroke" />
+            {selectedLayer.candidates.map((candidate, index) => <line key={`${candidate.x}-${candidate.y}-${index}`} x1={selected.x} y1={displayedLayerY} x2={candidate.x} y2={candidate.y} vectorEffect="non-scaling-stroke" />)}
+            <line className="selected-layer-boundary" x1={selected.x - 3} y1={displayedLayerY} x2={selected.x + 3} y2={displayedLayerY} vectorEffect="non-scaling-stroke" />
           </g>}
         </g>
         {detail && <g className="geo-texts">
@@ -160,6 +180,54 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, sh
             </g>
           )
         })}
+        {selected && selectedLayer && detail && !selected.isExcluded && <g transform="scale(1,-1)" className={`layer-depth-editor ${dragDepth !== null ? 'dragging' : ''}`}>
+          <line className="depth-drag-visible" x1={selected.x - 3} y1={displayedLayerY} x2={selected.x + 3} y2={displayedLayerY} vectorEffect="non-scaling-stroke" />
+          <circle className="depth-drag-handle" cx={selected.x + 3} cy={displayedLayerY} r={0.85} vectorEffect="non-scaling-stroke" />
+          <line
+            className="depth-drag-hit"
+            x1={selected.x - 4} y1={displayedLayerY} x2={selected.x + 4} y2={displayedLayerY}
+            vectorEffect="non-scaling-stroke"
+            tabIndex={0}
+            role="slider"
+            aria-label={`Глубина слоя ${selectedLayer.depth.toFixed(2).replace('.', ',')} м`}
+            aria-valuemin={layerLimits().min}
+            aria-valuemax={layerLimits().max}
+            aria-valuenow={displayedDepth}
+            onKeyDown={event => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+              event.preventDefault()
+              const { min, max } = layerLimits()
+              const next = Math.min(max, Math.max(min, selectedLayer.depth + (event.key === 'ArrowDown' ? 0.1 : -0.1)))
+              onDepthChange(selectedLayer.id, Math.round(next * 100) / 100)
+            }}
+            onPointerDown={event => {
+              event.preventDefault()
+              event.stopPropagation()
+              event.currentTarget.setPointerCapture(event.pointerId)
+              const { min, max } = layerLimits()
+              depthDrag.current = { pointerId: event.pointerId, startY: event.clientY, startDepth: selectedLayer.depth, min, max, lastDepth: selectedLayer.depth }
+              setDragDepth(selectedLayer.depth)
+            }}
+            onPointerMove={event => {
+              const current = depthDrag.current
+              if (!current || current.pointerId !== event.pointerId || !host.current) return
+              const rect = host.current.getBoundingClientRect()
+              const delta = (event.clientY - current.startY) * view.h / rect.height / 10
+              const next = Math.round(Math.min(current.max, Math.max(current.min, current.startDepth + delta)) * 100) / 100
+              current.lastDepth = next
+              setDragDepth(next)
+            }}
+            onPointerUp={event => {
+              const current = depthDrag.current
+              if (!current || current.pointerId !== event.pointerId) return
+              const next = current.lastDepth
+              depthDrag.current = null
+              setDragDepth(null)
+              if (next !== selectedLayer.depth) onDepthChange(selectedLayer.id, next)
+            }}
+            onPointerCancel={() => { depthDrag.current = null; setDragDepth(null) }}
+          />
+        </g>}
         {selected && detail && <g className="selected-caption">
           <rect x={selected.x - 1} y={-selected.top - 10} width={Math.max(25, selected.name.length * 2)} height={6} />
           <text x={selected.x + 1} y={-selected.top - 6.9}>{selected.name}</text>
@@ -177,7 +245,7 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, sh
         <button type="button" onClick={() => zoom(0.8)} title="Увеличить" aria-label="Увеличить"><Plus size={16} /></button>
         <button type="button" onClick={() => focus(selected)} title="Показать выбранную скважину" aria-label="Показать выбранную скважину"><Crosshair size={16} /></button>
       </div>
-      <div className="canvas-position-readout">В поле: {visible.columns.length} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Связей кандидатов: ${selectedLayer.candidates.length}` : ''}</div>
+      <div className="canvas-position-readout">В поле: {visible.columns.length} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}</div>
     </div>
   )
 }
