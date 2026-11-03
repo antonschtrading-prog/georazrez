@@ -5,6 +5,7 @@ import { getLabStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataI
 interface BoreholeOption {
   id: string
   name: string
+  layers: { id: string; ige: string; depth: number }[]
 }
 
 interface Props {
@@ -74,6 +75,8 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
         const valueCount = SOIL_CHARACTERISTICS.filter(property => Number.isFinite(test.values[property.key])).length
         const testName = test.sample.trim() || `Испытание ${testIndex + 1}`
         const testIssues = issues.filter(issue => issue.testId === test.id)
+        const linkedBorehole = boreholes.find(borehole => borehole.id === test.boreholeId)
+        const linkedLayerExists = linkedBorehole?.layers.some(layer => layer.id === test.layerId)
         return <article className={`lab-test ${testIssues.length ? 'has-issues' : ''}`} key={test.id}>
           <div className="lab-test-heading">
             <strong>{testName}</strong>
@@ -90,15 +93,6 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
               aria-label={`${testName}, номер образца`}
               onBlur={event => { if (event.target.value !== test.sample) onTestChange(code, test.id, 'sample', event.target.value) }}
             /></label>
-            <label><span>Скважина</span><select
-              value={test.boreholeId}
-              disabled={disabled}
-              aria-label={`${testName}, скважина`}
-              onChange={event => onTestChange(code, test.id, 'boreholeId', event.target.value)}
-            >
-              <option value="">Не указана</option>
-              {boreholes.map(borehole => <option value={borehole.id} key={borehole.id}>{borehole.name}</option>)}
-            </select></label>
             <label><span>Глубина, м</span><input
               key={`${test.id}-depth-${test.depth ?? 'empty'}`}
               defaultValue={String(test.depth ?? '').replace('.', ',')}
@@ -108,6 +102,28 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
               onBlur={event => updateNumber(event, test.depth, value => onTestChange(code, test.id, 'depth', value))}
               onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
             /></label>
+            <label><span>Скважина</span><select
+              value={test.boreholeId}
+              disabled={disabled}
+              aria-label={`${testName}, скважина`}
+              onChange={event => onTestChange(code, test.id, 'boreholeId', event.target.value)}
+            >
+              <option value="">Не указана</option>
+              {boreholes.map(borehole => <option value={borehole.id} key={borehole.id}>{borehole.name}</option>)}
+            </select></label>
+            <label><span>Конкретный слой</span><select
+              value={test.layerId || ''}
+              disabled={disabled || !test.boreholeId}
+              aria-label={`${testName}, слой`}
+              title="Привязка выбирается вручную и не вычисляется по глубине"
+              onChange={event => onTestChange(code, test.id, 'layerId', event.target.value)}
+            >
+              <option value="">Не привязан к слою</option>
+              {test.layerId && !linkedLayerExists && <option value={test.layerId}>Слой не найден — требуется выбор</option>}
+              {linkedBorehole?.layers.map((layer, layerIndex) => <option value={layer.id} key={layer.id}>
+                Слой {layerIndex + 1} · {layer.ige || '—'} · подошва {layer.depth.toFixed(2).replace('.', ',')} м
+              </option>)}
+            </select></label>
           </div>
           <label className="lab-source"><span>Отчёт / протокол</span><input
             key={`${test.id}-source-${test.source}`}

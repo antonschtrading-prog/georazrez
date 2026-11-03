@@ -97,12 +97,13 @@ export interface SoilCharacteristicRecord {
   source: string
 }
 
-export type LabTestField = 'sample' | 'boreholeId' | 'depth' | 'source'
+export type LabTestField = 'sample' | 'boreholeId' | 'layerId' | 'depth' | 'source'
 
 export interface LabTest {
   id: string
   sample: string
   boreholeId: string
+  layerId?: string
   depth: number | null
   source: string
   values: Partial<Record<SoilCharacteristicKey, number>>
@@ -145,6 +146,9 @@ export type LabIssueKind =
   | 'missing-depth'
   | 'invalid-depth'
   | 'depth-out-of-range'
+  | 'unknown-layer'
+  | 'layer-code-mismatch'
+  | 'layer-depth-mismatch'
   | 'missing-source'
   | 'empty-values'
 
@@ -166,6 +170,9 @@ export const LAB_ISSUE_LABELS: Record<LabIssueKind, string> = {
   'missing-depth': 'Не указана глубина',
   'invalid-depth': 'Некорректная глубина',
   'depth-out-of-range': 'Глубже последней подошвы',
+  'unknown-layer': 'Слой не найден в скважине',
+  'layer-code-mismatch': 'ИГЭ слоя не совпадает',
+  'layer-depth-mismatch': 'Глубина вне интервала слоя',
   'missing-source': 'Нет отчёта или протокола',
   'empty-values': 'Нет значений характеристик'
 }
@@ -203,6 +210,19 @@ export function getLabTestIssues(columns: Borehole[], code: string, passport: Ig
       const maximumDepth = Math.max(...column.layers.map(layer => layer.depth).filter(Number.isFinite))
       if (Number.isFinite(maximumDepth) && test.depth > maximumDepth) {
         add(test, 'depth-out-of-range', `Глубина ${test.depth.toFixed(2).replace('.', ',')} м больше последней подошвы ${maximumDepth.toFixed(2).replace('.', ',')} м. Это предупреждение для ручной проверки, а не автоматическое исправление.`)
+      }
+    }
+    const linkedLayer = test.layerId ? column?.layers.find(layer => layer.id === test.layerId) : null
+    if (test.layerId && !linkedLayer) {
+      add(test, 'unknown-layer', 'Выбранный слой отсутствует в указанной скважине. Проверьте привязку вручную после изменения скважины или состава слоёв.')
+    } else if (linkedLayer && column) {
+      if (getIgeKey(linkedLayer.ige) !== code) {
+        add(test, 'layer-code-mismatch', `Образец относится к ИГЭ ${code}, а выбранный слой имеет код ${linkedLayer.ige || '—'}. Автоматическое изменение не выполняется.`)
+      }
+      const layerIndex = column.layers.findIndex(layer => layer.id === linkedLayer.id)
+      const topDepth = column.layers[layerIndex - 1]?.depth ?? 0
+      if (test.depth !== null && Number.isFinite(test.depth) && test.depth > 0 && Number.isFinite(topDepth) && Number.isFinite(linkedLayer.depth) && (test.depth <= topDepth || test.depth > linkedLayer.depth)) {
+        add(test, 'layer-depth-mismatch', `Интервал выбранного слоя: свыше ${topDepth.toFixed(2).replace('.', ',')} до ${linkedLayer.depth.toFixed(2).replace('.', ',')} м. Проверьте глубину или выберите другой слой вручную.`)
       }
     }
     if (!test.source.trim()) add(test, 'missing-source', 'Укажите отчёт, протокол или другой источник результата.')

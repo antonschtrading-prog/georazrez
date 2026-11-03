@@ -240,6 +240,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Наименование ИГЭ', key: 'igeName', width: 28 },
     { header: 'Номер образца', key: 'sample', width: 20 },
     { header: 'Скважина', key: 'borehole', width: 24 },
+    { header: 'Конкретный слой', key: 'layer', width: 38 },
     { header: 'Глубина, м', key: 'depth', width: 16 },
     { header: 'Отчёт / протокол', key: 'source', width: 42 },
     ...SOIL_CHARACTERISTICS.map(property => ({
@@ -252,23 +253,27 @@ export async function exportWorkbook(project: GeoProject) {
     if (item.key === '__unassigned__') continue
     const passport = project.igePassports?.[item.key]
     for (const test of passport?.labTests || []) {
+      const testColumn = project.columns.find(column => column.id === test.boreholeId)
+      const layerIndex = testColumn?.layers.findIndex(layer => layer.id === test.layerId) ?? -1
+      const linkedLayer = layerIndex >= 0 ? testColumn?.layers[layerIndex] : null
       const rowData: Record<string, ExcelJS.CellValue> = {
         code: item.code,
         igeName: passport?.name || '',
         sample: test.sample,
-        borehole: project.columns.find(column => column.id === test.boreholeId)?.name || '',
+        borehole: testColumn?.name || '',
+        layer: linkedLayer ? `Слой ${layerIndex + 1} · ${linkedLayer.ige || '—'} · подошва ${linkedLayer.depth.toFixed(2).replace('.', ',')} м` : '',
         depth: test.depth,
         source: test.source
       }
       for (const property of SOIL_CHARACTERISTICS) rowData[property.key] = test.values[property.key] ?? null
       const row = labSheet.addRow(rowData)
-      row.getCell(5).numFmt = '0.00'
-      for (let columnIndex = 7; columnIndex <= 16; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
+      row.getCell(6).numFmt = '0.00'
+      for (let columnIndex = 8; columnIndex <= 17; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
     }
   }
   labSheet.getRow(1).font = { bold: true }
   labSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  labSheet.autoFilter = { from: 'A1', to: 'P1' }
+  labSheet.autoFilter = { from: 'A1', to: 'Q1' }
   labSheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const labStats = workbook.addWorksheet('Статистика ИГЭ')
@@ -407,6 +412,7 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
       (passport.labTests !== undefined && (
         !Array.isArray(passport.labTests) || passport.labTests.some(test =>
           !test || typeof test.id !== 'string' || typeof test.sample !== 'string' || typeof test.boreholeId !== 'string' ||
+          (test.layerId !== undefined && typeof test.layerId !== 'string') ||
           !isNullableFiniteNumber(test.depth) || typeof test.source !== 'string' ||
           !test.values || typeof test.values !== 'object' || Array.isArray(test.values) ||
           Object.entries(test.values).some(([key, value]) =>

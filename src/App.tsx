@@ -26,6 +26,7 @@ const CHARACTERISTIC_FIELD_LABELS: Record<SoilCharacteristicField, string> = {
 const LAB_TEST_FIELD_LABELS: Record<LabTestField, string> = {
   sample: 'номер образца',
   boreholeId: 'скважина',
+  layerId: 'слой',
   depth: 'глубина',
   source: 'источник'
 }
@@ -299,6 +300,7 @@ export default function App() {
       id: `lab-${Date.now()}-${Math.random()}`,
       sample: '',
       boreholeId: selected?.id || '',
+      layerId: '',
       depth: null,
       source: '',
       values: {}
@@ -315,12 +317,16 @@ export default function App() {
 
   const changeLabTest = (code: string, testId: string, field: LabTestField, value: string | number | null) => {
     const normalizedValue = field === 'depth' ? typeof value === 'number' && Number.isFinite(value) ? value : null : String(value ?? '')
-    updateLabTests(code, `ИГЭ ${code}: изменено поле «${LAB_TEST_FIELD_LABELS[field]}» испытания`, tests => {
+    const previousTest = project?.igePassports?.[getIgeKey(code)]?.labTests?.find(test => test.id === testId)
+    const layerReset = field === 'boreholeId' && Boolean(previousTest?.layerId)
+    updateLabTests(code, `ИГЭ ${code}: изменено поле «${LAB_TEST_FIELD_LABELS[field]}» испытания${layerReset ? '; привязка к слою сброшена' : ''}`, tests => {
       let changed = false
       const next = tests.map(test => {
         if (test.id !== testId || test[field] === normalizedValue) return test
         changed = true
-        return { ...test, [field]: normalizedValue }
+        return field === 'boreholeId'
+          ? { ...test, boreholeId: String(normalizedValue ?? ''), layerId: '' }
+          : { ...test, [field]: normalizedValue }
       })
       return changed ? next : tests
     })
@@ -512,13 +518,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name }))} labIssues={selectedLabIssues} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
         <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.12</span>
+        <span>Прототип 0.13</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

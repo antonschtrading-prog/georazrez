@@ -13,7 +13,7 @@ interface Props {
   onNeighborSelect: (boreholeId: string, layerId: string) => void
   onPassportChange: (code: string, field: 'name' | 'description' | 'notes', value: string) => void
   onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
-  boreholes: { id: string; name: string }[]
+  boreholes: { id: string; name: string; layers: { id: string; ige: string; depth: number }[] }[]
   labIssues: LabDataIssue[]
   onLabTestAdd: (code: string) => void
   onLabTestDelete: (code: string, testId: string) => void

@@ -348,7 +348,7 @@
 .lab-test-heading button { width: 27px; height: 27px; flex: none; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--danger); }
 .lab-test-heading button:hover:not(:disabled) { background: oklch(52% .19 25 / .08); }
 .lab-test-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lab-test-meta label:nth-child(2) { grid-column: 1 / -1; }
+.lab-test-meta label:nth-child(3), .lab-test-meta label:nth-child(4) { grid-column: 1 / -1; }
 .lab-test-meta label, .lab-source, .lab-value-grid label { min-width: 0; }
 .lab-test-meta label > span, .lab-source > span, .lab-value-grid label > span { display: block; margin-bottom: 4px; color: var(--muted-text); font-size: 8px; line-height: 1.35; }
 .lab-test-meta input, .lab-test-meta select, .lab-source input, .lab-value-grid input { width: 100%; min-width: 0; height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; outline: 0; background: var(--panel-bg); color: var(--ink); font-size: 10px; }
