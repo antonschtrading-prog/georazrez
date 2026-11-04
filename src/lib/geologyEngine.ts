@@ -183,31 +183,6 @@ function extractDepths(columns, geo, circleCodes, soilScale = 100, ignoredHandle
   });
 }
 
-function dedupeAxis(points) {
-  const sorted = points.map(p => p.map(Number)).sort((a, b) => a[0] - b[0]);
-  const out = [];
-  for (const p of sorted) {
-    const last = out[out.length - 1];
-    if (last && last[0] === p[0]) {
-      if (!close(last[1], p[1], 0.0005) || !close(last[2], p[2], 0.0005)) throw new Error('Одинаковый ПК с разными координатами: ' + p[0]);
-      continue;
-    }
-    out.push(p);
-  }
-  return out;
-}
-
-function axisXY(points, pk) {
-  const pts = dedupeAxis(points);
-  if (pk < pts[0][0] || pk > pts[pts.length - 1][0]) return [null, null];
-  let i = 0;
-  while (i < pts.length - 2 && pts[i + 1][0] <= pk) i++;
-  const a = pts[i], b = pts[i + 1];
-  if (a[0] === b[0]) return [a[1], a[2]];
-  const f = (pk - a[0]) / (b[0] - a[0]);
-  return [a[1] + f * (b[1] - a[1]), a[2] + f * (b[2] - a[2])];
-}
-
 /* Топологическая привязка ИГЭ. Односторонняя граница даёт кандидата,
  * но конкурирующие разные коды остаются неоднозначными и не экспортируются как факт.
  */
@@ -367,4 +342,4 @@ function audit(content, reviewed = false) {
 }
 
 
-export { parseDXF, extractColumns, assignNames, buildCircleCodes, extractDepths, dedupeAxis, axisXY, buildTopology, assignCodes, audit };
+export { parseDXF, extractColumns, assignNames, buildCircleCodes, extractDepths, buildTopology, assignCodes, audit };

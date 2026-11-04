@@ -17,7 +17,6 @@ import {
   type SoilCharacteristicKey,
   type SoilCharacteristicRecord
 } from '@/types/geology'
-import { axisXY } from './geologyEngine'
 
 export const CORE_SCHEMA_VERSION = 1 as const
 
@@ -152,6 +151,46 @@ const clonePassport = (key: string, passport: IgePassport): CoreIgePassport => (
   labTests: (passport.labTests || []).map(cloneTest)
 })
 
+/** Пикетаж вычисляется из исходной геометрии, без изменения координат DXF. */
+export function getCoreDrawingPk(x: number, originX: number, horizontalScale: number): number {
+  return (x - originX) * (horizontalScale / 1000)
+}
+
+/**
+ * Рабочая ось сортируется и очищается только от доказанных повторов.
+ * Исходный массив проекта не изменяется; конфликтующие дубликаты остаются ошибкой.
+ */
+export function dedupeCoreAxis(points: number[][]): number[][] {
+  if (points.length < 2 || points.some(point => point.length < 3 || point.slice(0, 3).some(value => !Number.isFinite(Number(value))))) {
+    throw new Error('Для интерполяции нужны минимум две строки с конечными ПК, X и Y')
+  }
+  const sorted = points.map(point => point.map(Number)).sort((a, b) => a[0] - b[0])
+  const result: number[][] = []
+  for (const point of sorted) {
+    const last = result[result.length - 1]
+    if (last && last[0] === point[0]) {
+      if (Math.abs(last[1] - point[1]) > 0.0005 || Math.abs(last[2] - point[2]) > 0.0005) {
+        throw new Error(`Одинаковый ПК с разными координатами: ${point[0]}`)
+      }
+      continue
+    }
+    result.push(point)
+  }
+  return result
+}
+
+/** Линейная интерполяция по рабочей оси; вне диапазона координаты не выдумываются. */
+export function coreAxisXY(points: number[][], pk: number): [number, number] | [null, null] {
+  const axis = dedupeCoreAxis(points)
+  if (!Number.isFinite(pk) || pk < axis[0][0] || pk > axis[axis.length - 1][0]) return [null, null]
+  let index = 0
+  while (index < axis.length - 2 && axis[index + 1][0] <= pk) index += 1
+  const a = axis[index]
+  const b = axis[index + 1]
+  const fraction = (pk - a[0]) / (b[0] - a[0])
+  return [a[1] + fraction * (b[1] - a[1]), a[2] + fraction * (b[2] - a[2])]
+}
+
 /**
  * Собирает каноническую модель сразу после извлечения DXF.
  * Ручное исключение подписей здесь не включается: решение принадлежит конкретному проекту.
@@ -167,8 +206,8 @@ export function createCoreModelFromExtraction(
   const verticalScale = metadata.verticalScale ?? 100
   const x0 = extraction.columns[0].x
   const boreholes: CoreBorehole[] = extraction.columns.map((column, index) => {
-    const pk = (column.x - x0) * (horizontalScale / 1000)
-    const [coordX, coordY] = axisXY(axis, pk)
+    const pk = getCoreDrawingPk(column.x, x0, horizontalScale)
+    const [coordX, coordY] = coreAxisXY(axis, pk)
     const sourceNamed = extraction.names[index] !== `Скв. ${index + 1}`
     const id = `borehole-${index + 1}`
     return {
