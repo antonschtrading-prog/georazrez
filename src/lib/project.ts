@@ -166,7 +166,11 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Основание корреляции', key: 'basis', width: 30 },
     { header: 'Инженерное обоснование', key: 'note', width: 48 },
     { header: 'Источник глубин', key: 'source', width: 25 },
-    { header: 'Контроль границы', key: 'issues', width: 60 }
+    { header: 'Контроль границы', key: 'issues', width: 60 },
+    { header: 'Решение по разрыву', key: 'gapDecision', width: 28 },
+    { header: 'Точка выклинивания, %', key: 'pinchoutFraction', width: 24 },
+    { header: 'Обоснование решения', key: 'gapNote', width: 48 },
+    { header: 'ID решения по разрыву', key: 'gapDecisionId', width: 42 }
   ]
   const boundaryModel = getCoreBoundaryModel(coreModel)
   for (const item of boundaryModel.items) {
@@ -185,18 +189,69 @@ export async function exportWorkbook(project: GeoProject) {
         : item.status === 'left-only' ? 'Нет парной подошвы справа'
           : item.status === 'right-only' ? 'Нет парной подошвы слева'
             : item.issues.some(issue => issue.kind === 'crossing') ? 'Пересечение границ' : 'Некорректная граница',
-      basis: item.manualCorrelation ? 'Ручная корреляция' : 'Одинаковый порядковый номер',
+      basis: item.manualCorrelation ? 'Ручная корреляция' : item.gapDecisionKind === 'accepted' ? 'Разрыв принят инженером' : item.gapDecisionKind === 'pinchout' ? 'Явное выклинивание' : 'Одинаковый порядковый номер',
       note: item.correlationNote,
       source: item.manual ? 'Есть ручная глубина' : 'Исходный DXF',
-      issues: item.issues.map(issue => issue.detail).join('; ')
+      issues: item.issues.map(issue => issue.detail).join('; '),
+      gapDecision: item.gapDecisionKind === 'accepted' ? 'Разрыв принят' : item.gapDecisionKind === 'pinchout' ? 'Выклинивание' : '',
+      pinchoutFraction: item.pinchoutFraction === null ? null : item.pinchoutFraction * 100,
+      gapNote: item.gapDecisionNote,
+      gapDecisionId: item.gapDecisionId || ''
     })
     row.getCell(7).numFmt = '0.00'
     row.getCell(8).numFmt = '0.00'
+    row.getCell(17).numFmt = '0.00'
   }
   boundarySheet.getRow(1).font = { bold: true }
   boundarySheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  boundarySheet.autoFilter = { from: 'A1', to: 'O1' }
+  boundarySheet.autoFilter = { from: 'A1', to: 'S1' }
   boundarySheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const gapDecisionSheet = workbook.addWorksheet('Решения по разрывам')
+  gapDecisionSheet.columns = [
+    { header: 'ID решения', key: 'id', width: 42 },
+    { header: 'Состояние', key: 'state', width: 34 },
+    { header: 'Левая скважина', key: 'leftName', width: 28 },
+    { header: 'Правая скважина', key: 'rightName', width: 28 },
+    { header: 'Подошва слева №', key: 'leftOrdinal', width: 18 },
+    { header: 'Подошва справа №', key: 'rightOrdinal', width: 18 },
+    { header: 'Тип решения', key: 'kind', width: 24 },
+    { header: 'Точка выклинивания, %', key: 'fraction', width: 24 },
+    { header: 'Инженерное обоснование', key: 'note', width: 60 },
+    { header: 'Создано', key: 'createdAt', width: 26 },
+    { header: 'X точки на чертеже', key: 'x', width: 24 },
+    { header: 'Y точки на чертеже', key: 'y', width: 24 },
+    { header: 'ID подошвы слева', key: 'leftLayerId', width: 38 },
+    { header: 'ID подошвы справа', key: 'rightLayerId', width: 38 }
+  ]
+  for (const decision of coreModel.gapDecisions) {
+    const item = boundaryModel.items.find(candidate => candidate.gapDecisionId === decision.id)
+    const inactive = boundaryModel.inactiveGapDecisions.find(candidate => candidate.decision.id === decision.id)
+    const pinchout = boundaryModel.pinchouts.find(candidate => candidate.decisionId === decision.id)
+    const row = gapDecisionSheet.addRow({
+      id: decision.id,
+      state: inactive ? 'Неактивно: текущий разрыв отсутствует' : item?.status === 'invalid' ? 'Ошибка построения' : 'Активно',
+      leftName: item?.leftBoreholeName || '',
+      rightName: item?.rightBoreholeName || '',
+      leftOrdinal: item?.leftOrdinal ?? null,
+      rightOrdinal: item?.rightOrdinal ?? null,
+      kind: decision.kind === 'accepted' ? 'Разрыв принят' : 'Выклинивание',
+      fraction: decision.fraction === null ? null : decision.fraction * 100,
+      note: decision.note,
+      createdAt: decision.createdAt,
+      x: pinchout?.x ?? null,
+      y: pinchout?.y ?? null,
+      leftLayerId: decision.leftLayerId || '',
+      rightLayerId: decision.rightLayerId || ''
+    })
+    row.getCell(8).numFmt = '0.00'
+    row.getCell(11).numFmt = '0.000'
+    row.getCell(12).numFmt = '0.000'
+  }
+  gapDecisionSheet.getRow(1).font = { bold: true }
+  gapDecisionSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  gapDecisionSheet.autoFilter = { from: 'A1', to: 'N1' }
+  gapDecisionSheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
   codeSummary.columns = [
@@ -424,6 +479,15 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
     )
   )) {
     throw new Error('В проекте повреждены паспорта ИГЭ')
+  }
+  if (parsed.gapDecisions !== undefined && (!Array.isArray(parsed.gapDecisions) || parsed.gapDecisions.some(decision =>
+    !decision || typeof decision.id !== 'string' || typeof decision.note !== 'string' || typeof decision.createdAt !== 'string' ||
+    !['accepted', 'pinchout'].includes(decision.kind) ||
+    !(decision.leftLayerId === null || typeof decision.leftLayerId === 'string') ||
+    !(decision.rightLayerId === null || typeof decision.rightLayerId === 'string') ||
+    !isNullableFiniteNumber(decision.fraction)
+  ))) {
+    throw new Error('В проекте повреждены решения по разрывам')
   }
   return parsed
 }

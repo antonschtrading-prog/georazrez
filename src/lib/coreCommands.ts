@@ -6,7 +6,7 @@ import {
   type CoreLayer,
   type CoreModel
 } from './geologyCore'
-import { getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GapDecision, type GapDecisionKind, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 function withActivity(
   model: CoreModel,
@@ -209,6 +209,9 @@ export function deleteCoreLayer(
   const layer = requireLayer(borehole, layerId)
   if (model.manualCorrelations.some(correlation => correlation.leftLayerId === layerId || correlation.rightLayerId === layerId)) {
     throw new Error('Сначала снимите ручную корреляцию этой подошвы')
+  }
+  if (model.gapDecisions.some(decision => decision.leftLayerId === layerId || decision.rightLayerId === layerId)) {
+    throw new Error('Сначала удалите решение по разрыву этой подошвы')
   }
   const nextBorehole = resetReview({
     ...borehole,
@@ -414,6 +417,10 @@ export function addCoreManualCorrelation(
       (correlation.leftLayerId === leftLayerId || correlation.rightLayerId === rightLayerId)
   })
   if (conflict) throw new Error('Одна из подошв уже имеет ручную корреляцию в этой паре скважин')
+  const decidedGap = getCoreBoundaryModel(model).items.some(item => item.gapDecisionId &&
+    item.leftBoreholeId === left.id && item.rightBoreholeId === right.id &&
+    (item.leftLayerId === leftLayerId || item.rightLayerId === rightLayerId))
+  if (decidedGap) throw new Error('Сначала удалите решение по разрыву между этими подошвами')
 
   const leftLayer = requireLayer(left, leftLayerId)
   const rightLayer = requireLayer(right, rightLayerId)
@@ -465,6 +472,10 @@ export function updateCoreManualCorrelation(
       (item.leftLayerId === leftLayerId || item.rightLayerId === rightLayerId)
   })
   if (conflict) throw new Error('Одна из подошв уже имеет ручную корреляцию в этой паре скважин')
+  const decidedGap = getCoreBoundaryModel(model).items.some(item => item.gapDecisionId &&
+    item.leftBoreholeId === left.id && item.rightBoreholeId === right.id &&
+    (item.leftLayerId === leftLayerId || item.rightLayerId === rightLayerId))
+  if (decidedGap) throw new Error('Сначала удалите решение по разрыву между этими подошвами')
   const leftLayer = requireLayer(left, leftLayerId)
   const rightLayer = requireLayer(right, rightLayerId)
   const previousLeft = findLayerOwner(model, correlation.leftLayerId)
@@ -518,4 +529,135 @@ export function removeCoreManualCorrelation(
     now
   )
   return { ...next, manualCorrelations: model.manualCorrelations.filter(item => item.id !== correlationId) }
+}
+
+function validateGapDecisionInput(
+  leftLayerId: string | null,
+  rightLayerId: string | null,
+  kind: GapDecisionKind,
+  fraction: number | null,
+  note: string
+): string {
+  const normalizedNote = note.trim()
+  if (Boolean(leftLayerId) === Boolean(rightLayerId)) {
+    throw new Error('Решение относится ровно к одной существующей подошве разрыва')
+  }
+  if (!normalizedNote) throw new Error('Укажите инженерное обоснование решения по разрыву')
+  if (kind === 'accepted' && fraction !== null) {
+    throw new Error('Для принятого разрыва точка выклинивания не задаётся')
+  }
+  if (kind === 'pinchout' && (fraction === null || !Number.isFinite(fraction) || fraction <= 0 || fraction >= 1)) {
+    throw new Error('Точка выклинивания должна находиться строго между скважинами')
+  }
+  return normalizedNote
+}
+
+function gapDecisionBoreholeIds(model: CoreModel, decision: Pick<GapDecision, 'leftLayerId' | 'rightLayerId'>): Set<string> {
+  const ids = new Set<string>()
+  const boundary = getCoreBoundaryModel(model).items.find(item =>
+    item.leftLayerId === decision.leftLayerId && item.rightLayerId === decision.rightLayerId
+  )
+  if (boundary) {
+    ids.add(boundary.leftBoreholeId)
+    ids.add(boundary.rightBoreholeId)
+  } else {
+    const owner = findLayerOwner(model, decision.leftLayerId || decision.rightLayerId || '')
+    if (owner) ids.add(owner.id)
+  }
+  return ids
+}
+
+function describeGapDecision(model: CoreModel, decision: Pick<GapDecision, 'leftLayerId' | 'rightLayerId'>): string {
+  const left = decision.leftLayerId ? findLayerOwner(model, decision.leftLayerId) : undefined
+  const right = decision.rightLayerId ? findLayerOwner(model, decision.rightLayerId) : undefined
+  const leftLayer = left?.layers.find(layer => layer.id === decision.leftLayerId)
+  const rightLayer = right?.layers.find(layer => layer.id === decision.rightLayerId)
+  return `${left?.name || '—'}, подошва ${leftLayer?.ordinal ?? '—'} ↔ ${right?.name || '—'}, подошва ${rightLayer?.ordinal ?? '—'}`
+}
+
+export function addCoreGapDecision(
+  model: CoreModel,
+  leftLayerId: string | null,
+  rightLayerId: string | null,
+  kind: GapDecisionKind,
+  fraction: number | null,
+  note: string,
+  now = new Date()
+): CoreModel {
+  const normalizedNote = validateGapDecisionInput(leftLayerId, rightLayerId, kind, fraction, note)
+  const existingLayerId = leftLayerId || rightLayerId!
+  if (!findLayerOwner(model, existingLayerId)) throw new Error('Подошва разрыва не найдена в канонической модели')
+  const gap = getCoreBoundaryModel(model).items.find(item =>
+    (item.status === 'left-only' || item.status === 'right-only') &&
+    item.leftLayerId === leftLayerId && item.rightLayerId === rightLayerId
+  )
+  if (!gap) throw new Error('Текущий разрыв не найден: решение не применено к другой геометрии')
+  if (model.gapDecisions.some(decision =>
+    decision.leftLayerId === leftLayerId && decision.rightLayerId === rightLayerId
+  )) throw new Error('Для этого разрыва уже существует инженерное решение')
+  const decision: GapDecision = {
+    id: `gap-decision-${existingLayerId}`,
+    leftLayerId,
+    rightLayerId,
+    kind,
+    fraction: kind === 'pinchout' ? fraction : null,
+    note: normalizedNote,
+    createdAt: now.toISOString()
+  }
+  if (model.gapDecisions.some(item => item.id === decision.id)) {
+    throw new Error('Не удалось создать уникальный идентификатор решения')
+  }
+  const affected = gapDecisionBoreholeIds(model, decision)
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
+    `${describeGapDecision(model, decision)}: ${kind === 'accepted' ? 'разрыв принят инженером' : `задано выклинивание на ${(fraction! * 100).toFixed(1).replace('.', ',')}% участка`}. Обоснование: ${normalizedNote}`,
+    now
+  )
+  return { ...next, gapDecisions: [...model.gapDecisions, decision] }
+}
+
+export function updateCoreGapDecision(
+  model: CoreModel,
+  decisionId: string,
+  kind: GapDecisionKind,
+  fraction: number | null,
+  note: string,
+  now = new Date()
+): CoreModel {
+  const decision = model.gapDecisions.find(item => item.id === decisionId)
+  if (!decision) return model
+  const normalizedNote = validateGapDecisionInput(decision.leftLayerId, decision.rightLayerId, kind, fraction, note)
+  const normalizedFraction = kind === 'pinchout' ? fraction : null
+  if (decision.kind === kind && decision.fraction === normalizedFraction && decision.note === normalizedNote) return model
+  const affected = gapDecisionBoreholeIds(model, decision)
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
+    `${describeGapDecision(model, decision)}: решение по разрыву изменено на «${kind === 'accepted' ? 'принять разрыв' : 'выклинивание'}»${kind === 'pinchout' ? `, положение ${(fraction! * 100).toFixed(1).replace('.', ',')}%` : ''}. Обоснование: ${normalizedNote}`,
+    now
+  )
+  return {
+    ...next,
+    gapDecisions: model.gapDecisions.map(item => item.id === decisionId
+      ? { ...item, kind, fraction: normalizedFraction, note: normalizedNote }
+      : item)
+  }
+}
+
+export function removeCoreGapDecision(
+  model: CoreModel,
+  decisionId: string,
+  now = new Date()
+): CoreModel {
+  const decision = model.gapDecisions.find(item => item.id === decisionId)
+  if (!decision) return model
+  const affected = gapDecisionBoreholeIds(model, decision)
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
+    `${describeGapDecision(model, decision)}: решение по разрыву удалено; разрыв снова открыт или остаётся неактивным при изменившейся корреляции`,
+    now
+  )
+  return { ...next, gapDecisions: model.gapDecisions.filter(item => item.id !== decisionId) }
 }

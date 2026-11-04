@@ -10,6 +10,7 @@ import {
   type GeoIssue,
   type GeoProject,
   type GeoSegment,
+  type GapDecision,
   type IgePassport,
   type IssueKind,
   type LayerDepthIssue,
@@ -85,10 +86,11 @@ export interface CoreModel {
   boreholes: CoreBorehole[]
   passports: Record<string, CoreIgePassport>
   manualCorrelations: ManualCorrelation[]
+  gapDecisions: GapDecision[]
 }
 
 export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'invalid'
-export type CoreBoundaryIssueKind = 'invalid-depth' | 'invalid-scale' | 'crossing'
+export type CoreBoundaryIssueKind = 'invalid-depth' | 'invalid-scale' | 'crossing' | 'invalid-pinchout'
 
 export interface CoreBoundaryIssue {
   kind: CoreBoundaryIssueKind
@@ -122,14 +124,45 @@ export interface CoreBoundaryItem {
   manualCorrelation: boolean
   correlationId: string | null
   correlationNote: string
+  gapDecisionId: string | null
+  gapDecisionKind: GapDecision['kind'] | null
+  gapDecisionNote: string
+  pinchoutFraction: number | null
+  /** Верхняя и нижняя линии заменяются явной геометрией точки выклинивания. */
+  pinchoutId: string | null
+}
+
+export interface CorePinchoutGeometry {
+  id: string
+  decisionId: string
+  boundaryId: string
+  upperBoundaryId: string | null
+  side: 'left' | 'right'
+  x: number
+  y: number
+  lowerX: number
+  lowerY: number
+  upperLeftX: number
+  upperLeftY: number
+  upperRightX: number
+  upperRightY: number
+}
+
+export interface CoreInactiveGapDecision {
+  decision: GapDecision
+  description: string
 }
 
 export interface CoreBoundaryModel {
   items: CoreBoundaryItem[]
   connected: number
   gaps: number
+  openGaps: number
+  decidedGaps: number
   invalid: number
   crossings: number
+  pinchouts: CorePinchoutGeometry[]
+  inactiveGapDecisions: CoreInactiveGapDecision[]
 }
 
 /** Одна задача проекта: геологическая проблема или одна некорректная граница. */
@@ -190,6 +223,8 @@ export type CoreIssueKind =
   | 'invalid-correlation'
   | 'duplicate-correlation'
   | 'invalid-source-reference'
+  | 'invalid-gap-decision'
+  | 'duplicate-gap-decision'
 
 export interface CoreModelIssue {
   id: string
@@ -335,7 +370,8 @@ export function createCoreModelFromExtraction(
     },
     boreholes,
     passports: {},
-    manualCorrelations: []
+    manualCorrelations: [],
+    gapDecisions: []
   }
 }
 
@@ -410,7 +446,8 @@ export function createCoreModel(project: GeoProject): CoreModel {
     passports: Object.fromEntries(
       Object.entries(project.igePassports || {}).map(([key, passport]) => [key, clonePassport(key, passport)])
     ),
-    manualCorrelations: (project.manualCorrelations || []).map(correlation => ({ ...correlation }))
+    manualCorrelations: (project.manualCorrelations || []).map(correlation => ({ ...correlation })),
+    gapDecisions: (project.gapDecisions || []).map(decision => ({ ...decision }))
   }
 }
 
@@ -479,6 +516,7 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
       }])
     ),
     manualCorrelations: model.manualCorrelations.map(correlation => ({ ...correlation })),
+    gapDecisions: model.gapDecisions.map(decision => ({ ...decision })),
     activity: model.project.activity.map(item => ({ ...item }))
   }
 }
@@ -542,7 +580,7 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
       items.push({
         id: correlation
           ? `boundary-${left.id}-${right.id}-manual-${correlation.id}`
-          : `boundary-${left.id}-${right.id}-${ordinal}`,
+          : `boundary-${left.id}-${right.id}-${leftLayer?.id || rightLayer?.id || ordinal}`,
         ordinal,
         leftOrdinal: leftLayer?.ordinal ?? null,
         rightOrdinal: rightLayer?.ordinal ?? null,
@@ -559,15 +597,20 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
         leftCode: leftLayer?.igeCode || '',
         rightCode: rightLayer?.igeCode || '',
         x1: left.drawing.x,
-        y1: leftLayer && status === 'connected' ? drawingY(left, leftLayer.bottomDepth) : null,
+        y1: leftLayer && (status === 'connected' || status === 'left-only') ? drawingY(left, leftLayer.bottomDepth) : null,
         x2: right.drawing.x,
-        y2: rightLayer && status === 'connected' ? drawingY(right, rightLayer.bottomDepth) : null,
+        y2: rightLayer && (status === 'connected' || status === 'right-only') ? drawingY(right, rightLayer.bottomDepth) : null,
         status,
         issues,
         manual: leftLayer?.depthSource === 'manual' || rightLayer?.depthSource === 'manual',
         manualCorrelation: Boolean(correlation),
         correlationId: correlation?.id || null,
-        correlationNote: correlation?.note || ''
+        correlationNote: correlation?.note || '',
+        gapDecisionId: null,
+        gapDecisionKind: null,
+        gapDecisionNote: '',
+        pinchoutFraction: null,
+        pinchoutId: null
       })
     }
 
@@ -620,12 +663,106 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
     }
   }
 
+  const pinchouts: CorePinchoutGeometry[] = []
+  const inactiveGapDecisions: CoreInactiveGapDecision[] = []
+  const describeDecision = (decision: GapDecision) => {
+    const leftLayer = model.boreholes.flatMap(column => column.layers).find(layer => layer.id === decision.leftLayerId)
+    const rightLayer = model.boreholes.flatMap(column => column.layers).find(layer => layer.id === decision.rightLayerId)
+    const left = model.boreholes.find(column => column.id === leftLayer?.boreholeId)
+    const right = model.boreholes.find(column => column.id === rightLayer?.boreholeId)
+    return `${left?.name || '—'} ${leftLayer?.ordinal ?? '—'} ↔ ${right?.name || '—'} ${rightLayer?.ordinal ?? '—'} · ${decision.note}`
+  }
+
+  for (const decision of model.gapDecisions) {
+    const itemIndex = items.findIndex(item =>
+      (item.status === 'left-only' || item.status === 'right-only') &&
+      item.leftLayerId === decision.leftLayerId &&
+      item.rightLayerId === decision.rightLayerId &&
+      !item.gapDecisionId
+    )
+    if (itemIndex < 0) {
+      inactiveGapDecisions.push({ decision: { ...decision }, description: describeDecision(decision) })
+      continue
+    }
+    const item = items[itemIndex]
+    items[itemIndex] = {
+      ...item,
+      gapDecisionId: decision.id,
+      gapDecisionKind: decision.kind,
+      gapDecisionNote: decision.note,
+      pinchoutFraction: decision.kind === 'pinchout' ? decision.fraction : null
+    }
+    if (decision.kind === 'accepted') continue
+
+    const existingSide = item.status === 'left-only' ? 'left' : 'right'
+    const existingColumn = existingSide === 'left'
+      ? model.boreholes.find(column => column.id === item.leftBoreholeId)
+      : model.boreholes.find(column => column.id === item.rightBoreholeId)
+    const existingLayerId = item.leftLayerId || item.rightLayerId
+    const existingLayer = existingColumn?.layers.find(layer => layer.id === existingLayerId)
+    const previousLayer = existingLayer && existingLayer.ordinal > 1
+      ? existingColumn?.layers[existingLayer.ordinal - 2]
+      : null
+    const upperIndex = previousLayer
+      ? items.findIndex(candidate => candidate.status === 'connected' &&
+        candidate.leftBoreholeId === item.leftBoreholeId &&
+        candidate.rightBoreholeId === item.rightBoreholeId &&
+        (existingSide === 'left' ? candidate.leftLayerId : candidate.rightLayerId) === previousLayer.id)
+      : -1
+    const lowerY = existingSide === 'left' ? item.y1 : item.y2
+    const upper = upperIndex >= 0 ? items[upperIndex] : null
+    const firstLayer = existingLayer?.ordinal === 1
+    const upperAlreadyUsed = Boolean(upper && pinchouts.some(pinchout => pinchout.upperBoundaryId === upper.id))
+    const valid = Boolean(
+      existingColumn && existingLayer && Number.isFinite(lowerY) &&
+      decision.fraction !== null && decision.fraction > 0 && decision.fraction < 1 &&
+      (firstLayer || upper && upper.y1 !== null && upper.y2 !== null && !upperAlreadyUsed)
+    )
+    if (!valid || !existingColumn || !existingLayer || lowerY === null || decision.fraction === null) {
+      items[itemIndex] = {
+        ...items[itemIndex],
+        status: 'invalid',
+        issues: [...item.issues, {
+          kind: 'invalid-pinchout',
+          detail: upperAlreadyUsed
+            ? 'Эта верхняя граница уже использована другим выклиниванием; автоматическое совмещение нескольких точек не выполняется'
+            : 'Для выклинивания нужна конечная глубина, положение строго между скважинами и однозначно соединённая верхняя граница'
+        }]
+      }
+      continue
+    }
+    const left = model.boreholes.find(column => column.id === item.leftBoreholeId)!
+    const right = model.boreholes.find(column => column.id === item.rightBoreholeId)!
+    const pinchoutId = `pinchout-${decision.id}`
+    pinchouts.push({
+      id: pinchoutId,
+      decisionId: decision.id,
+      boundaryId: item.id,
+      upperBoundaryId: upper?.id || null,
+      side: existingSide,
+      x: item.x1 + (item.x2 - item.x1) * decision.fraction,
+      y: lowerY,
+      lowerX: existingSide === 'left' ? item.x1 : item.x2,
+      lowerY,
+      upperLeftX: item.x1,
+      upperLeftY: firstLayer ? left.drawing.top : upper!.y1!,
+      upperRightX: item.x2,
+      upperRightY: firstLayer ? right.drawing.top : upper!.y2!
+    })
+    items[itemIndex] = { ...items[itemIndex], pinchoutId }
+    if (upperIndex >= 0) items[upperIndex] = { ...items[upperIndex], pinchoutId }
+  }
+
   return {
     items,
     connected: items.filter(item => item.status === 'connected').length,
     gaps: items.filter(item => item.status === 'left-only' || item.status === 'right-only').length,
+    openGaps: items.filter(item => (item.status === 'left-only' || item.status === 'right-only') && !item.gapDecisionId).length,
+    decidedGaps: items.filter(item => item.gapDecisionId).length,
     invalid: items.filter(item => item.status === 'invalid').length,
-    crossings: items.filter(item => item.issues.some(issue => issue.kind === 'crossing')).length
+    crossings: items.filter(item => item.issues.some(issue => issue.kind === 'crossing')).length,
+    pinchouts,
+    inactiveGapDecisions
   }
 }
 
@@ -929,6 +1066,31 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
         add({ kind: 'duplicate-correlation', title: 'Конфликт ручных корреляций', detail: `Подошва ${layerId} уже использована в другой ручной связи этой пары скважин.` })
       }
       correlationLayers.add(useKey)
+    }
+  }
+
+  const gapDecisionIds = new Set<string>()
+  const gapDecisionPairs = new Set<string>()
+  for (const decision of model.gapDecisions) {
+    const pairKey = `${decision.leftLayerId || ''}|${decision.rightLayerId || ''}`
+    if (gapDecisionIds.has(decision.id) || gapDecisionPairs.has(pairKey)) {
+      add({ kind: 'duplicate-gap-decision', title: 'Повтор решения по разрыву', detail: `Решение ${decision.id} дублирует идентификатор или пару подошв.` })
+    }
+    gapDecisionIds.add(decision.id)
+    gapDecisionPairs.add(pairKey)
+    const leftOwner = decision.leftLayerId ? layerOwners.get(decision.leftLayerId) : null
+    const rightOwner = decision.rightLayerId ? layerOwners.get(decision.rightLayerId) : null
+    const validFraction = decision.kind === 'pinchout'
+      ? decision.fraction !== null && Number.isFinite(decision.fraction) && decision.fraction > 0 && decision.fraction < 1
+      : decision.fraction === null
+    if ((!leftOwner && !rightOwner) || Boolean(leftOwner) === Boolean(rightOwner) || !decision.note.trim() || !validFraction) {
+      add({
+        kind: 'invalid-gap-decision',
+        boreholeId: leftOwner || rightOwner || undefined,
+        layerId: decision.leftLayerId || decision.rightLayerId || undefined,
+        title: 'Некорректное решение по разрыву',
+        detail: 'Нужна одна существующая подошва и обоснование; доля точки выклинивания должна быть строго между 0 и 1.'
+      })
     }
   }
   return issues

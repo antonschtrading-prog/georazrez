@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, Spline } from 'lucide-react'
-import type { ActivityItem, CodeSummaryItem, IssueKind } from '@/types/geology'
+import type { ActivityItem, CodeSummaryItem, GapDecision, IssueKind } from '@/types/geology'
 import type { CoreBoundaryItem, CoreBoundaryModel, CoreReviewItem } from '@/lib/geologyCore'
 
 interface Props {
@@ -17,6 +17,9 @@ interface Props {
   onCorrelateBoundary: (item: CoreBoundaryItem) => void
   onEditCorrelation: (item: CoreBoundaryItem) => void
   onRemoveCorrelation: (correlationId: string) => void
+  onDecideGap: (item: CoreBoundaryItem) => void
+  onEditInactiveGapDecision: (decision: GapDecision) => void
+  onRemoveGapDecision: (decisionId: string) => void
   onStep: (direction: -1 | 1) => void
 }
 
@@ -29,17 +32,21 @@ const boundaryStatus = (item: CoreBoundaryItem) => {
   }
   if (item.manualCorrelation) return 'Соединена вручную'
   if (item.status === 'connected') return 'Соединена'
+  if (item.gapDecisionKind === 'accepted') return 'Разрыв принят'
+  if (item.gapDecisionKind === 'pinchout') return `Выклинивание · ${((item.pinchoutFraction || 0) * 100).toFixed(1).replace('.', ',')}%`
   return item.status === 'left-only' ? 'Нет подошвы справа' : 'Нет подошвы слева'
 }
 
-export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onStep }: Props) {
+export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onDecideGap, onEditInactiveGapDecision, onRemoveGapDecision, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | IssueKind | 'invalid-boundary'>('all')
-  const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'all' | 'connected' | 'invalid'>('gaps')
+  const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'open' | 'decided' | 'all' | 'connected' | 'invalid'>('gaps')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
   const filteredBoundaries = boundaries.items.filter(item => boundaryFilter === 'all'
-    || boundaryFilter === 'gaps' && (item.status === 'left-only' || item.status === 'right-only')
+    || boundaryFilter === 'gaps' && (item.status === 'left-only' || item.status === 'right-only' || Boolean(item.gapDecisionId))
+    || boundaryFilter === 'open' && (item.status === 'left-only' || item.status === 'right-only') && !item.gapDecisionId
+    || boundaryFilter === 'decided' && Boolean(item.gapDecisionId)
     || boundaryFilter === 'connected' && item.status === 'connected'
     || boundaryFilter === 'invalid' && item.status === 'invalid')
   const activeIndex = issues.findIndex(issue => issue.id === activeIssueId)
@@ -75,7 +82,9 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
         {tab === 'boundaries' && !collapsed && <div className="boundary-filter">
           <label htmlFor="boundary-kind">Показать</label>
           <select id="boundary-kind" value={boundaryFilter} onChange={event => setBoundaryFilter(event.target.value as typeof boundaryFilter)}>
-            <option value="gaps">Разрывы корреляции</option>
+            <option value="gaps">Все разрывы и решения</option>
+            <option value="open">Открытые разрывы</option>
+            <option value="decided">Принятые решения</option>
             <option value="all">Все границы</option>
             <option value="connected">Соединённые</option>
             <option value="invalid">Некорректные</option>
@@ -127,17 +136,29 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
         {tab === 'boundaries' && <div className="boundary-list" role="list">
           <div className="boundary-summary">
             <span><strong>{boundaries.connected}</strong> соединено</span>
-            <span><strong>{boundaries.gaps}</strong> разрывов</span>
+            <span><strong>{boundaries.openGaps}</strong> открытых</span>
+            <span><strong>{boundaries.decidedGaps}</strong> решений</span>
             <span><strong>{boundaries.invalid}</strong> некорректных</span>
-            <small>Одинаковый номер подошвы · без автоматического выклинивания</small>
+            <small>Разрыв принимается или выклинивание задаётся только явным решением</small>
           </div>
+          {boundaries.inactiveGapDecisions.length > 0 && <div className="inactive-gap-decisions">
+            <strong>Неактивные решения по разрывам</strong>
+            <p>Текущая корреляция изменилась. Решения сохранены, но не создают геометрию и не удаляются автоматически.</p>
+            {boundaries.inactiveGapDecisions.map(({ decision, description }) => <div className="inactive-gap-row" key={decision.id}>
+              <span><strong>{description}</strong><small>{decision.kind === 'accepted' ? 'Принятый разрыв' : `Выклинивание · ${((decision.fraction || 0) * 100).toFixed(1).replace('.', ',')}%`} · {decision.id}</small></span>
+              <div className="boundary-actions">
+                <button type="button" className="boundary-action" onClick={() => onEditInactiveGapDecision(decision)}>Изменить</button>
+                <button type="button" className="boundary-action" onClick={() => onRemoveGapDecision(decision.id)}>Удалить</button>
+              </div>
+            </div>)}
+          </div>}
           {filteredBoundaries.map(item => {
             const leftValue = item.leftDepth !== null ? `${formatDepth(item.leftDepth)} м${item.leftCode ? ` · ${item.leftCode}` : ''}` : '—'
             const rightValue = item.rightDepth !== null ? `${formatDepth(item.rightDepth)} м${item.rightCode ? ` · ${item.rightCode}` : ''}` : '—'
             const active = item.leftLayerId === activeLayerId || item.rightLayerId === activeLayerId
             const isGap = item.status === 'left-only' || item.status === 'right-only'
             const issueText = item.issues.map(issue => issue.detail).join('; ')
-            return <div role="listitem" key={item.id} title={[item.correlationNote, issueText].filter(Boolean).join(' · ') || undefined} className={`boundary-row ${item.status} ${item.manualCorrelation ? 'manual-correlation' : ''} ${active ? 'active' : ''}`}>
+            return <div role="listitem" key={item.id} data-boundary-row={item.id} title={[item.correlationNote, item.gapDecisionNote, issueText].filter(Boolean).join(' · ') || undefined} className={`boundary-row ${item.status} ${item.manualCorrelation ? 'manual-correlation' : ''} ${item.gapDecisionId ? 'gap-decided' : ''} ${active ? 'active' : ''}`}>
               <button type="button" className="boundary-select" onClick={() => onSelectBoundary(item)} aria-label={`Показать границу ${item.ordinal} между ${item.leftBoreholeName} и ${item.rightBoreholeName}`}>
                 <span className="boundary-ordinal">{item.manualCorrelation ? `${item.leftOrdinal}↔${item.rightOrdinal}` : item.ordinal}</span>
                 <span className="boundary-copy"><strong>{item.leftBoreholeName} → {item.rightBoreholeName}</strong><span>{leftValue} → {rightValue}</span>{issueText && <span className="boundary-issues">{issueText}</span>}</span>
@@ -148,7 +169,14 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
                   <button type="button" className="boundary-action boundary-edit" onClick={() => onEditCorrelation(item)}>Обоснование</button>
                   <button type="button" className="boundary-action" onClick={() => onRemoveCorrelation(item.correlationId!)}>Снять связь</button>
                 </div>
-                : isGap ? <button type="button" className="boundary-action" onClick={() => onCorrelateBoundary(item)}>Связать</button> : null}
+                : item.gapDecisionId ? <div className="boundary-actions">
+                  <button type="button" className="boundary-action gap-decision-edit" onClick={() => onDecideGap(item)}>Изменить</button>
+                  <button type="button" className="boundary-action" onClick={() => onRemoveGapDecision(item.gapDecisionId!)}>Удалить</button>
+                </div>
+                  : isGap ? <div className="boundary-actions">
+                    <button type="button" className="boundary-action gap-decision-add" onClick={() => onDecideGap(item)}>Решение</button>
+                    <button type="button" className="boundary-action" onClick={() => onCorrelateBoundary(item)}>Связать</button>
+                  </div> : null}
             </div>
           })}
           {!filteredBoundaries.length && <div className="issue-empty">В этой категории границ нет.</div>}

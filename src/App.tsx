@@ -11,8 +11,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreReviewItems, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
-import { addCoreActivity, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreManualCorrelation } from '@/lib/coreCommands'
-import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { addCoreActivity, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreGapDecision, updateCoreManualCorrelation } from '@/lib/coreCommands'
+import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -40,6 +40,11 @@ export default function App() {
   const [editingCorrelationLeft, setEditingCorrelationLeft] = useState('')
   const [editingCorrelationRight, setEditingCorrelationRight] = useState('')
   const [editingCorrelationNote, setEditingCorrelationNote] = useState('')
+  const [gapBoundary, setGapBoundary] = useState<CoreBoundaryItem | null>(null)
+  const [editingGapDecision, setEditingGapDecision] = useState<GapDecision | null>(null)
+  const [gapKind, setGapKind] = useState<GapDecisionKind>('accepted')
+  const [gapFraction, setGapFraction] = useState('50')
+  const [gapNote, setGapNote] = useState('')
 
   useEffect(() => {
     let active = true
@@ -118,6 +123,17 @@ export default function App() {
   const correlationSourceLayer = correlationSource?.layers.find(item => item.id === correlationSourceLayerId) || null
   const editingLeftBorehole = coreModel?.boreholes.find(item => item.id === editingCorrelation?.leftBoreholeId) || null
   const editingRightBorehole = coreModel?.boreholes.find(item => item.id === editingCorrelation?.rightBoreholeId) || null
+  const gapDialogOpen = Boolean(gapBoundary || editingGapDecision)
+  const gapDialogDescription = gapBoundary
+    ? `${gapBoundary.leftBoreholeName}, подошва ${gapBoundary.leftOrdinal ?? '—'} ↔ ${gapBoundary.rightBoreholeName}, подошва ${gapBoundary.rightOrdinal ?? '—'}`
+    : editingGapDecision
+      ? boundaries?.inactiveGapDecisions.find(item => item.decision.id === editingGapDecision.id)?.description || 'Неактивное решение по разрыву'
+      : ''
+  const parsedGapFraction = Number(gapFraction.replace(',', '.')) / 100
+  const gapFractionValid = Number.isFinite(parsedGapFraction) && parsedGapFraction > 0 && parsedGapFraction < 1
+  const gapUnchanged = Boolean(editingGapDecision && editingGapDecision.kind === gapKind &&
+    editingGapDecision.fraction === (gapKind === 'pinchout' ? parsedGapFraction : null) &&
+    editingGapDecision.note === gapNote.trim())
 
   const commitCore = (updater: (current: CoreModel) => CoreModel): boolean => {
     if (!coreModel) return false
@@ -246,6 +262,51 @@ export default function App() {
   const removeCorrelation = (correlationId: string) => {
     if (commitCore(current => removeCoreManualCorrelation(current, correlationId))) {
       toast.success('Ручная корреляция снята')
+    }
+  }
+
+  const closeGapDecision = () => {
+    setGapBoundary(null)
+    setEditingGapDecision(null)
+  }
+
+  const openGapDecision = (item: CoreBoundaryItem) => {
+    selectBoundary(item)
+    const decision = item.gapDecisionId
+      ? coreModel?.gapDecisions.find(candidate => candidate.id === item.gapDecisionId) || null
+      : null
+    setGapBoundary(item)
+    setEditingGapDecision(decision)
+    setGapKind(decision?.kind || 'accepted')
+    setGapFraction(decision?.fraction !== null && decision?.fraction !== undefined ? String(decision.fraction * 100) : '50')
+    setGapNote(decision?.note || '')
+  }
+
+  const openInactiveGapDecision = (decision: GapDecision) => {
+    setGapBoundary(null)
+    setEditingGapDecision(decision)
+    setGapKind(decision.kind)
+    setGapFraction(decision.fraction !== null ? String(decision.fraction * 100) : '50')
+    setGapNote(decision.note)
+  }
+
+  const submitGapDecision = () => {
+    const fraction = gapKind === 'pinchout' ? parsedGapFraction : null
+    const changed = editingGapDecision
+      ? commitCore(current => updateCoreGapDecision(current, editingGapDecision.id, gapKind, fraction, gapNote))
+      : gapBoundary
+        ? commitCore(current => addCoreGapDecision(current, gapBoundary.leftLayerId, gapBoundary.rightLayerId, gapKind, fraction, gapNote))
+        : false
+    if (changed) {
+      closeGapDecision()
+      toast.success(editingGapDecision ? 'Решение по разрыву обновлено' : 'Решение по разрыву сохранено')
+    }
+  }
+
+  const removeGapDecision = (decisionId: string) => {
+    if (commitCore(current => removeCoreGapDecision(current, decisionId))) {
+      if (editingGapDecision?.id === decisionId) closeGapDecision()
+      toast.success('Решение по разрыву удалено')
     }
   }
 
@@ -420,7 +481,7 @@ export default function App() {
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={reviewItems} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onStep={stepIssue} />
+          <IssueDock issues={reviewItems} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onDecideGap={openGapDecision} onEditInactiveGapDecision={openInactiveGapDecision} onRemoveGapDecision={removeGapDecision} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
         {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
@@ -428,8 +489,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.34 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.34</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.35 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.35</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -488,6 +549,32 @@ export default function App() {
               <button type="submit" className="button primary" disabled={!editingCorrelationLeft || !editingCorrelationRight || !editingCorrelationNote.trim() || editingCorrelationLeft === editingCorrelation.leftLayerId && editingCorrelationRight === editingCorrelation.rightLayerId && editingCorrelationNote.trim() === editingCorrelation.correlationNote}>Сохранить изменения</button>
             </div>
           </form>}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={gapDialogOpen} onOpenChange={open => { if (!open) closeGapDecision() }}>
+        <DialogContent className="exclude-dialog gap-decision-dialog">
+          <DialogHeader>
+            <DialogTitle>{editingGapDecision ? 'Изменить решение по разрыву' : 'Решение по разрыву корреляции'}</DialogTitle>
+            <DialogDescription>Разрыв можно принять без новой линии либо задать явную точку выклинивания. Глубины, коды ИГЭ и исходный DXF не изменяются. Для выклинивания нужна однозначно соединённая верхняя граница; для первого слоя используется поверхность.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={event => { event.preventDefault(); submitGapDecision() }}>
+            <div className="correlation-source"><span>Участок и подошвы</span><strong>{gapDialogDescription}</strong></div>
+            <div className="gap-decision-options" role="radiogroup" aria-label="Тип решения по разрыву">
+              <label><input type="radio" name="gap-kind" value="accepted" checked={gapKind === 'accepted'} onChange={() => setGapKind('accepted')} /><span>Принять разрыв<small>Сохранить разрыв без построения линии</small></span></label>
+              <label><input type="radio" name="gap-kind" value="pinchout" checked={gapKind === 'pinchout'} onChange={() => setGapKind('pinchout')} /><span>Задать выклинивание<small>Свести нижнюю и верхнюю границы в явной точке</small></span></label>
+            </div>
+            {gapKind === 'pinchout' && <div className="gap-fraction-field">
+              <label className="field-label" htmlFor="gap-fraction">Точка от левой скважины к правой, % участка</label>
+              <input id="gap-fraction" className="name-input" type="number" min="0.01" max="99.99" step="0.01" value={gapFraction} onChange={event => setGapFraction(event.target.value)} required />
+              {!gapFractionValid && <p className="import-error">Введите значение больше 0 и меньше 100. Нулевая или отрицательная мощность не создаётся.</p>}
+            </div>}
+            <label className="field-label correlation-note-label" htmlFor="gap-note">Инженерное обоснование</label>
+            <textarea id="gap-note" className="reason-input" value={gapNote} onChange={event => setGapNote(event.target.value)} placeholder="Укажите основание решения и источник геологической корреляции" required />
+            <div className="import-actions">
+              <button type="button" className="button secondary" onClick={closeGapDecision}>Отмена</button>
+              <button type="submit" className="button primary" disabled={!gapNote.trim() || gapKind === 'pinchout' && !gapFractionValid || gapUnchanged}>{editingGapDecision ? 'Сохранить изменения' : 'Сохранить решение'}</button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />

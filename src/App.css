@@ -178,6 +178,9 @@
 .calculated-boundary.manual { stroke: var(--info); stroke-width: 1.35; }
 .calculated-boundary.manual-correlation { stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 4 2; }
 .calculated-boundary.crossing { stroke: var(--danger); stroke-width: 2; stroke-dasharray: 2 2; }
+.pinchout-boundaries { fill: none; stroke: var(--info); stroke-width: 1.45; pointer-events: none; }
+.pinchout-boundaries .pinchout-upper { stroke-dasharray: 4 2; }
+.pinchout-boundaries .pinchout-point { fill: var(--accent-lime); stroke: var(--info); stroke-width: 1.5; }
 .geo-circles { stroke: var(--ink-soft); stroke-width: .75; fill: var(--canvas-bg); pointer-events: none; }
 .geo-texts { fill: var(--ink-soft); font-family: 'IBM Plex Sans', sans-serif; font-size: 2.25px; dominant-baseline: middle; pointer-events: none; }
 .column-hit-area { fill: transparent; cursor: pointer; outline: none; }
@@ -265,7 +268,22 @@
 .boundary-status { color: var(--muted-text); font-size: 9px; white-space: nowrap; }
 .boundary-row.left-only .boundary-status, .boundary-row.right-only .boundary-status { color: var(--warning); }
 .boundary-row.invalid .boundary-status { color: var(--danger); }
-.boundary-row.manual-correlation:not(.invalid) .boundary-status { color: var(--info); }
+.boundary-row.manual-correlation:not(.invalid) .boundary-status, .boundary-row.gap-decided:not(.invalid) .boundary-status { color: var(--info); }
+.inactive-gap-decisions { padding: 10px 13px; border-bottom: 1px solid var(--warning); background: oklch(61% .15 65 / .06); }
+.inactive-gap-decisions > strong { font-size: 10px; font-weight: 600; }
+.inactive-gap-decisions > p { margin: 4px 0 8px; color: var(--muted-text); font-size: 9px; line-height: 1.45; }
+.inactive-gap-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--gray-90); }
+.inactive-gap-row > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.inactive-gap-row > span strong { overflow: hidden; text-overflow: ellipsis; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.inactive-gap-row small { color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 8px; }
+.gap-decision-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.gap-decision-options label { display: flex; align-items: flex-start; gap: 8px; min-height: 56px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.gap-decision-options label:has(input:checked) { border-color: var(--accent-dark); background: oklch(96.8% .21 116 / .2); }
+.gap-decision-options input { margin-top: 2px; accent-color: var(--accent-dark); }
+.gap-decision-options span { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 500; }
+.gap-decision-options small { color: var(--muted-text); font-size: 9px; font-weight: 400; line-height: 1.35; }
+.gap-fraction-field { margin-top: 10px; }
+.gap-fraction-field .name-input { font-family: 'IBM Plex Mono', monospace; }
 .boundary-action { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-bg); color: var(--ink-soft); font-size: 9px; white-space: nowrap; }
 .boundary-action:hover { border-color: var(--accent-dark); background: var(--accent-lime); color: var(--ink); }
 .boundary-actions { display: flex; align-items: center; gap: 4px; }

@@ -94,10 +94,17 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
     return {
       segments: project.geometry.segments.filter(s => Math.max(s.x1, s.x2) >= left && Math.min(s.x1, s.x2) <= right && Math.max(s.y1, s.y2) >= bottom && Math.min(s.y1, s.y2) <= top),
       boundaries: boundaries.items.filter(item =>
+        !item.pinchoutId &&
         (item.status === 'connected' || item.issues.some(issue => issue.kind === 'crossing')) &&
         item.y1 !== null && item.y2 !== null && Number.isFinite(item.y1) && Number.isFinite(item.y2) &&
         Math.max(item.x1, item.x2) >= left && Math.min(item.x1, item.x2) <= right &&
         Math.max(item.y1, item.y2) >= bottom && Math.min(item.y1, item.y2) <= top
+      ),
+      pinchouts: boundaries.pinchouts.filter(item =>
+        Math.max(item.upperLeftX, item.upperRightX, item.x, item.lowerX) >= left &&
+        Math.min(item.upperLeftX, item.upperRightX, item.x, item.lowerX) <= right &&
+        Math.max(item.upperLeftY, item.upperRightY, item.y, item.lowerY) >= bottom &&
+        Math.min(item.upperLeftY, item.upperRightY, item.y, item.lowerY) <= top
       ),
       circles: project.geometry.circles.filter(c => c.x + c.r >= left && c.x - c.r <= right && c.y + c.r >= bottom && c.y - c.r <= top),
       texts: project.geometry.texts.filter(t => t.x >= left && t.x <= right && t.y >= bottom && t.y <= top),
@@ -162,6 +169,15 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
               x1={boundary.x1} y1={boundary.y1!} x2={boundary.x2} y2={boundary.y2!}
               vectorEffect="non-scaling-stroke"
             />)}
+          </g>
+          <g className="pinchout-boundaries">
+            {visible.pinchouts.map(pinchout => <g key={pinchout.id} data-pinchout={pinchout.id} data-gap-decision={pinchout.decisionId}>
+              <line className="pinchout-lower" x1={pinchout.lowerX} y1={pinchout.lowerY} x2={pinchout.x} y2={pinchout.y} vectorEffect="non-scaling-stroke" />
+              <polyline className="pinchout-upper" points={`${pinchout.upperLeftX},${pinchout.upperLeftY} ${pinchout.x},${pinchout.y} ${pinchout.upperRightX},${pinchout.upperRightY}`} vectorEffect="non-scaling-stroke" />
+              <circle className="pinchout-point" cx={pinchout.x} cy={pinchout.y} r={0.8} vectorEffect="non-scaling-stroke">
+                <title>Явная точка выклинивания · {pinchout.decisionId}</title>
+              </circle>
+            </g>)}
           </g>
           {(showCodes || selectedLayer) && detail && <g className="geo-circles">
             {visible.circles.filter(c => showCodes || candidateKeys.has(`${c.x}|${c.y}`)).map((c, i) => {

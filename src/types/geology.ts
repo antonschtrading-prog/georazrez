@@ -126,6 +126,19 @@ export interface ManualCorrelation {
   createdAt: string
 }
 
+export type GapDecisionKind = 'accepted' | 'pinchout'
+
+export interface GapDecision {
+  id: string
+  leftLayerId: string | null
+  rightLayerId: string | null
+  kind: GapDecisionKind
+  /** Доля расстояния от левой скважины к правой; используется только для выклинивания. */
+  fraction: number | null
+  note: string
+  createdAt: string
+}
+
 export interface GeoProject {
   schemaVersion: 1
   id: string
@@ -145,6 +158,7 @@ export interface GeoProject {
   bounds: { minX: number; maxX: number; minY: number; maxY: number }
   igePassports?: Record<string, IgePassport>
   manualCorrelations?: ManualCorrelation[]
+  gapDecisions?: GapDecision[]
   activity: ActivityItem[]
 }
 
