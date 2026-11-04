@@ -9,6 +9,7 @@ import {
   type GeoIssue,
   type GeoProject,
   type IgePassport,
+  type IssueKind,
   type LayerDepthIssue,
   type LayerNeighbor,
   type LayerNeighbors,
@@ -124,6 +125,19 @@ export interface CoreBoundaryModel {
   gaps: number
   invalid: number
   crossings: number
+}
+
+/** Одна задача проекта: геологическая проблема или одна некорректная граница. */
+export interface CoreReviewItem {
+  id: string
+  source: 'geology' | 'boundary'
+  kind: IssueKind | 'invalid-boundary'
+  boreholeId: string
+  layerId?: string
+  boundaryId?: string
+  title: string
+  detail: string
+  candidates?: string[]
 }
 
 export interface CoreDxfExtraction {
@@ -646,6 +660,36 @@ export function getCoreIssues(model: CoreModel): GeoIssue[] {
     }
   }
   return issues
+}
+
+/**
+ * Общая очередь не дублирует общую границу для каждой скважины.
+ * Обычные разрывы не являются ошибками и сюда не включаются.
+ */
+export function getCoreReviewItems(
+  model: CoreModel,
+  boundaries = getCoreBoundaryModel(model)
+): CoreReviewItem[] {
+  const geological = getCoreIssues(model).map(issue => ({
+    ...issue,
+    id: `geology-${issue.id}`,
+    source: 'geology' as const
+  }))
+  const invalidBoundaries = boundaries.items
+    .filter(item => item.status === 'invalid')
+    .map(item => ({
+      id: `boundary-${item.id}`,
+      source: 'boundary' as const,
+      kind: 'invalid-boundary' as const,
+      boreholeId: item.leftBoreholeId,
+      layerId: item.leftLayerId ?? item.rightLayerId ?? undefined,
+      boundaryId: item.id,
+      title: item.issues.some(issue => issue.kind === 'crossing')
+        ? `${item.leftBoreholeName} → ${item.rightBoreholeName}: пересечение границ`
+        : `${item.leftBoreholeName} → ${item.rightBoreholeName}: некорректная граница`,
+      detail: `Подошвы ${item.leftOrdinal ?? '—'} ↔ ${item.rightOrdinal ?? '—'}: ${item.issues.map(issue => issue.detail).join('; ')}`
+    }))
+  return [...geological, ...invalidBoundaries]
 }
 
 /** Соседи выбираются только среди активных колонок; совпадения не ранжируются по глубине. */

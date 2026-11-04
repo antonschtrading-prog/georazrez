@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, Spline } from 'lucide-react'
-import type { ActivityItem, CodeSummaryItem, GeoIssue, IssueKind } from '@/types/geology'
-import type { CoreBoundaryItem, CoreBoundaryModel } from '@/lib/geologyCore'
+import type { ActivityItem, CodeSummaryItem, IssueKind } from '@/types/geology'
+import type { CoreBoundaryItem, CoreBoundaryModel, CoreReviewItem } from '@/lib/geologyCore'
 
 interface Props {
-  issues: GeoIssue[]
+  issues: CoreReviewItem[]
   activity: ActivityItem[]
   codeSummary: CodeSummaryItem[]
   boundaries: CoreBoundaryModel
   activeIssueId: string | null
   activeCodeKey: string | null
   activeLayerId: string | null
-  onSelect: (issue: GeoIssue) => void
+  onSelect: (issue: CoreReviewItem) => void
   onSelectCode: (item: CodeSummaryItem) => void
   onSelectBoundary: (item: CoreBoundaryItem) => void
   onCorrelateBoundary: (item: CoreBoundaryItem) => void
@@ -35,7 +35,7 @@ const boundaryStatus = (item: CoreBoundaryItem) => {
 export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
-  const [kind, setKind] = useState<'all' | IssueKind>('all')
+  const [kind, setKind] = useState<'all' | IssueKind | 'invalid-boundary'>('all')
   const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'all' | 'connected' | 'invalid'>('gaps')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
   const filteredBoundaries = boundaries.items.filter(item => boundaryFilter === 'all'
@@ -61,8 +61,9 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
           </div>
           <div className="issue-filter">
             <label htmlFor="issue-kind">Показать</label>
-            <select id="issue-kind" value={kind} onChange={event => setKind(event.target.value as 'all' | IssueKind)}>
+            <select id="issue-kind" value={kind} onChange={event => setKind(event.target.value as typeof kind)}>
               <option value="all">Все проблемы</option>
+              <option value="invalid-boundary">Некорректные границы</option>
               <option value="ambiguous-code">Неоднозначные ИГЭ</option>
               <option value="missing-code">ИГЭ не найден</option>
               <option value="invalid-depth">Некорректная глубина</option>

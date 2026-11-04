@@ -216,7 +216,7 @@
 .issue-row:hover { background: var(--gray-90); }
 .issue-row.active { background: oklch(96.8% .21 116 / .3); box-shadow: inset 2px 0 0 var(--accent-dark); }
 .issue-icon { flex: none; color: var(--warning); }
-.issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order { color: var(--danger); }
+.issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order, .issue-icon.invalid-boundary { color: var(--danger); }
 .issue-icon.missing-name { color: var(--info); }
 .issue-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-copy strong { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

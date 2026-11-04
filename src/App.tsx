@@ -10,9 +10,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel, type CoreBoundaryItem, type CoreModel } from '@/lib/geologyCore'
+import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreReviewItems, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
 import { addCoreActivity, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreManualCorrelation } from '@/lib/coreCommands'
-import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -75,6 +75,9 @@ export default function App() {
 
   const issues = useMemo(() => coreModel ? getCoreIssues(coreModel) : [], [coreModel])
   const boundaries = useMemo(() => coreModel ? getCoreBoundaryModel(coreModel) : null, [coreModel])
+  const reviewItems = useMemo(() => coreModel && boundaries
+    ? getCoreReviewItems(coreModel, boundaries)
+    : [], [coreModel, boundaries])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
   const coreReport = useMemo(() => coreModel ? {
     stats: getCoreModelStats(coreModel),
@@ -86,7 +89,10 @@ export default function App() {
     ? getCoreBoreholeBoundaryIssues(boundaries, selectedCore.id)
     : []
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
-  const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
+  const indexedReview = reviewIndex !== null ? reviewItems[reviewIndex] : null
+  const activeIssueId = indexedReview && indexedReview.boreholeId === selected?.id && (indexedReview.layerId || null) === selectedLayerId
+    ? indexedReview.id
+    : reviewItems.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeCodeKey = selectedLayer ? getIgeKey(selectedLayer.ige) : null
   const selectedPassport = activeCodeKey && activeCodeKey !== '__unassigned__' ? project?.igePassports?.[activeCodeKey] || null : null
   const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
@@ -167,8 +173,14 @@ export default function App() {
     setSelectedLayerId(null)
   }
 
-  const selectIssue = (issue: GeoIssue) => {
-    const index = issues.findIndex(item => item.id === issue.id)
+  const selectIssue = (issue: CoreReviewItem) => {
+    const index = reviewItems.findIndex(item => item.id === issue.id)
+    if (issue.source === 'boundary') {
+      const boundary = boundaries?.items.find(item => item.id === issue.boundaryId)
+      if (boundary) selectBoundary(boundary)
+      setReviewIndex(index >= 0 ? index : null)
+      return
+    }
     setReviewIndex(index >= 0 ? index : null)
     setSelectedId(issue.boreholeId)
     setSelectedLayerId(issue.layerId || null)
@@ -176,7 +188,7 @@ export default function App() {
   }
 
   const selectLayerLocation = (boreholeId: string, layerId: string) => {
-    const issueIndex = issues.findIndex(issue => issue.boreholeId === boreholeId && issue.layerId === layerId)
+    const issueIndex = reviewItems.findIndex(issue => issue.boreholeId === boreholeId && issue.layerId === layerId)
     setReviewIndex(issueIndex >= 0 ? issueIndex : null)
     setSelectedId(boreholeId)
     setSelectedLayerId(layerId)
@@ -238,15 +250,15 @@ export default function App() {
   }
 
   const stepIssue = (direction: -1 | 1) => {
-    if (!issues.length) return
-    const selectedIndex = issues.findIndex(issue => issue.id === activeIssueId)
+    if (!reviewItems.length) return
+    const selectedIndex = reviewItems.findIndex(issue => issue.id === activeIssueId)
     let nextIndex: number
-    if (selectedIndex >= 0) nextIndex = (selectedIndex + direction + issues.length) % issues.length
+    if (selectedIndex >= 0) nextIndex = (selectedIndex + direction + reviewItems.length) % reviewItems.length
     else if (reviewIndex !== null) nextIndex = direction > 0
-      ? Math.min(Math.max(reviewIndex, 0), issues.length - 1)
-      : Math.max(Math.min(reviewIndex - 1, issues.length - 1), 0)
-    else nextIndex = direction > 0 ? 0 : issues.length - 1
-    selectIssue(issues[nextIndex])
+      ? Math.min(Math.max(reviewIndex, 0), reviewItems.length - 1)
+      : Math.max(Math.min(reviewIndex - 1, reviewItems.length - 1), 0)
+    else nextIndex = direction > 0 ? 0 : reviewItems.length - 1
+    selectIssue(reviewItems[nextIndex])
   }
 
   const renameSelected = (name: string) => {
@@ -408,7 +420,7 @@ export default function App() {
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onStep={stepIssue} />
+          <IssueDock issues={reviewItems} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
         {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
@@ -416,8 +428,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.31 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.31</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.32 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.32</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
