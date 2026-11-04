@@ -1,6 +1,7 @@
 import {
   getCharacteristicCoverage,
   getIgeKey,
+  SOIL_HATCHES,
   type ActivityCategory,
   type ActivityItem,
   type Borehole,
@@ -21,6 +22,7 @@ import {
   type LayerNeighbors,
   type LayerSourceRefs,
   type ManualCorrelation,
+  type SoilAppearance,
   type SoilCharacteristicKey,
   type SoilCharacteristicRecord
 } from '@/types/geology'
@@ -71,6 +73,7 @@ export interface CoreIgePassport {
   description: string
   notes: string
   characteristics: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
+  appearance?: SoilAppearance
 }
 
 export interface CoreModel {
@@ -259,6 +262,7 @@ export type CoreIssueKind =
   | 'invalid-gap-decision'
   | 'duplicate-gap-decision'
   | 'invalid-fictitious-rule'
+  | 'invalid-soil-appearance'
 
 export interface CoreModelIssue {
   id: string
@@ -278,7 +282,8 @@ const clonePassport = (key: string, passport: IgePassport): CoreIgePassport => (
   notes: passport.notes,
   characteristics: Object.fromEntries(
     Object.entries(passport.characteristics || {}).map(([property, record]) => [property, { ...record }])
-  )
+  ),
+  ...(passport.appearance ? { appearance: { ...passport.appearance } } : {})
 })
 
 /** Пикетаж вычисляется из исходной геометрии, без изменения координат DXF. */
@@ -552,7 +557,8 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
         notes: passport.notes,
         characteristics: Object.fromEntries(
           Object.entries(passport.characteristics).map(([property, record]) => [property, { ...record }])
-        )
+        ),
+        ...(passport.appearance ? { appearance: { ...passport.appearance } } : {})
       }])
     ),
     manualCorrelations: model.manualCorrelations.map(correlation => ({ ...correlation })),
@@ -1244,6 +1250,29 @@ export function getCoreCodeSummary(model: CoreModel): CodeSummaryItem[] {
   })
 }
 
+/** Нейтральный начальный вид не является геологической классификацией или обозначением по ГОСТ. */
+export const DEFAULT_SOIL_APPEARANCE: SoilAppearance = { color: '#E5E2D9', hatch: 'none' }
+
+export function getCoreSoilAppearance(model: CoreModel, key: string): SoilAppearance {
+  return model.passports[key]?.appearance || DEFAULT_SOIL_APPEARANCE
+}
+
+export interface CoreSoilLibraryItem extends CodeSummaryItem {
+  appearance: SoilAppearance
+  appearanceCustomized: boolean
+}
+
+/** В библиотеку попадают все непустые коды активного сечения; слои без ИГЭ остаются в общей очереди. */
+export function getCoreSoilLibrary(model: CoreModel): CoreSoilLibraryItem[] {
+  return getCoreCodeSummary(model)
+    .filter(item => item.key !== '__unassigned__')
+    .map(item => ({
+      ...item,
+      appearance: getCoreSoilAppearance(model, item.key),
+      appearanceCustomized: Boolean(model.passports[item.key]?.appearance)
+    }))
+}
+
 export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
   const issues: CoreModelIssue[] = []
   const add = (issue: Omit<CoreModelIssue, 'id' | 'severity'>) => {
@@ -1340,6 +1369,9 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
   for (const [key, passport] of Object.entries(model.passports)) {
     if (key === '__unassigned__' || getIgeKey(key) !== key || passport.key !== key) {
       add({ kind: 'invalid-passport-key', passportKey: key, title: `Некорректный ключ паспорта ${key}`, detail: 'Ключ паспорта должен быть нормализованным непустым кодом ИГЭ и совпадать с ключом записи.' })
+    }
+    if (passport.appearance && (!/^#[0-9A-Fa-f]{6}$/.test(passport.appearance.color) || !SOIL_HATCHES.includes(passport.appearance.hatch))) {
+      add({ kind: 'invalid-soil-appearance', passportKey: key, title: `Некорректное оформление ИГЭ ${key}`, detail: 'Цвет должен быть шестизначным HEX, а штриховка — одним из поддерживаемых условных шаблонов. Геологические данные не изменены.' })
     }
   }
 

@@ -1,7 +1,7 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { CORE_ACTIVITY_CATEGORY_LABELS, createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreJournalEntries, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, validateCoreModel, type CoreModel } from './geologyCore'
-import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityCategory, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { CORE_ACTIVITY_CATEGORY_LABELS, createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreJournalEntries, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreModel } from './geologyCore'
+import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityCategory, type ActivityItem, type CodeStatus, type GeoProject, type SoilHatch } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -28,6 +28,14 @@ function isValidInterpolation(value: unknown): boolean {
   return rule.method === 'linear' && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
     typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string' &&
     (rule.sourceFingerprint === undefined || typeof rule.sourceFingerprint === 'string')
+}
+
+function isValidSoilAppearance(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const appearance = value as Record<string, unknown>
+  return typeof appearance.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(appearance.color) &&
+    typeof appearance.hatch === 'string' && SOIL_HATCHES.includes(appearance.hatch as SoilHatch)
 }
 
 const ACTIVITY_CATEGORIES: ActivityCategory[] = ['system', 'geology', 'correlation', 'gap', 'fictitious', 'passport', 'review']
@@ -385,6 +393,35 @@ export async function exportWorkbook(project: GeoProject) {
   codeSummary.autoFilter = { from: 'A1', to: 'O1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
+  const soilLibrary = workbook.addWorksheet('Библиотека грунтов')
+  soilLibrary.columns = [
+    { header: 'Код ИГЭ', key: 'code', width: 16 },
+    { header: 'Наименование ИГЭ', key: 'name', width: 32 },
+    { header: 'Варианты написания', key: 'variants', width: 32 },
+    { header: 'Слоёв', key: 'layers', width: 12 },
+    { header: 'Скважин', key: 'boreholes', width: 12 },
+    { header: 'Цвет', key: 'color', width: 16 },
+    { header: 'Штриховка', key: 'hatch', width: 28 },
+    { header: 'Происхождение оформления', key: 'appearanceSource', width: 32 }
+  ]
+  for (const item of getCoreSoilLibrary(coreModel)) {
+    const row = soilLibrary.addRow({
+      code: item.code,
+      name: item.passportName,
+      variants: item.variants.join(' / '),
+      layers: item.layerCount,
+      boreholes: item.boreholeCount,
+      color: item.appearance.color,
+      hatch: SOIL_HATCH_LABELS[item.appearance.hatch],
+      appearanceSource: item.appearanceCustomized ? 'Выбрано инженером' : 'Нейтральный начальный вид'
+    })
+    row.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${item.appearance.color.slice(1).toUpperCase()}` } }
+  }
+  soilLibrary.getRow(1).font = { bold: true }
+  soilLibrary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  soilLibrary.autoFilter = { from: 'A1', to: 'H1' }
+  soilLibrary.views = [{ state: 'frozen', ySplit: 1 }]
+
   const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
   characteristics.columns = [
     { header: 'Код ИГЭ', key: 'code', width: 16 },
@@ -592,6 +629,7 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
     !parsed.igePassports || typeof parsed.igePassports !== 'object' || Array.isArray(parsed.igePassports) ||
     Object.values(parsed.igePassports).some(passport =>
       !passport || typeof passport.name !== 'string' || typeof passport.description !== 'string' || typeof passport.notes !== 'string' ||
+      !isValidSoilAppearance(passport.appearance) ||
       (passport.characteristics !== undefined && (
         !passport.characteristics || typeof passport.characteristics !== 'object' || Array.isArray(passport.characteristics) ||
         Object.entries(passport.characteristics).some(([key, record]) =>

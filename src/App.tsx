@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, PanelRight, Plus, Redo2, Save, Tags, Undo2 } from 'lucide-react'
+import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, Palette, PanelRight, Plus, Redo2, Save, Tags, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoreholeList } from '@/components/BoreholeList'
 import { Inspector } from '@/components/Inspector'
 import { IssueDock } from '@/components/IssueDock'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
+import { SoilLibraryDialog } from '@/components/SoilLibraryDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreJournalEntries, getCoreLayerNeighbors, getCoreModelStats, getCoreSectionReport, validateCoreModel, type CoreBoundaryItem, type CoreJournalEntry, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
-import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation } from '@/lib/coreCommands'
+import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreJournalEntries, getCoreLayerNeighbors, getCoreModelStats, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreBoundaryItem, type CoreJournalEntry, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
+import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, changeCoreSoilAppearance, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation, type CoreSoilAppearanceField } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -31,6 +32,7 @@ export default function App() {
   const [showLabels, setShowLabels] = useState(true)
   const [showCodes, setShowCodes] = useState(true)
   const [importOpen, setImportOpen] = useState(false)
+  const [soilLibraryOpen, setSoilLibraryOpen] = useState(false)
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saved')
   const [mobilePanel, setMobilePanel] = useState<'list' | 'inspector' | null>(null)
   const [correlationBoundary, setCorrelationBoundary] = useState<CoreBoundaryItem | null>(null)
@@ -94,6 +96,7 @@ export default function App() {
   const reviewItems = useMemo(() => sectionReport?.items || [], [sectionReport])
   const journalEntries = useMemo(() => coreModel ? getCoreJournalEntries(coreModel) : [], [coreModel])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
+  const soilLibrary = useMemo(() => coreModel ? getCoreSoilLibrary(coreModel) : [], [coreModel])
   const coreReport = useMemo(() => coreModel ? {
     stats: getCoreModelStats(coreModel),
     issues: validateCoreModel(coreModel)
@@ -492,6 +495,10 @@ export default function App() {
     }
   }
 
+  const changeSoilAppearance = (code: string, field: CoreSoilAppearanceField, value: string) => {
+    commitCore(current => changeCoreSoilAppearance(current, code, field, value))
+  }
+
   const changeCharacteristic = (
     code: string,
     property: SoilCharacteristicKey,
@@ -615,6 +622,7 @@ export default function App() {
             <div className="viewer-actions">
               <button type="button" className={showLabels ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowLabels(value => !value)} aria-pressed={showLabels}><Tags size={15} /> Подписи</button>
               <button type="button" className={showCodes ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowCodes(value => !value)} aria-pressed={showCodes}><Layers3 size={15} /> ИГЭ</button>
+              <button type="button" className="toggle-button" onClick={() => setSoilLibraryOpen(true)}><Palette size={15} /> Грунты</button>
               <button type="button" className={fictitiousPickMode ? 'toggle-button active' : 'toggle-button'} onClick={fictitiousPickMode ? () => setFictitiousPickMode(false) : startFictitiousPick} aria-pressed={fictitiousPickMode}><Plus size={15} /> {fictitiousPickMode ? 'Отменить выбор' : 'Фиктивная'}</button>
               <button type="button" className="toggle-button" onClick={() => setFitToken(value => value + 1)}><MapPin size={15} /> Обзор</button>
             </div>
@@ -635,8 +643,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.38 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.38</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.39 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.39</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -782,6 +790,7 @@ export default function App() {
           </form>
         </DialogContent>
       </Dialog>
+      <SoilLibraryDialog open={soilLibraryOpen} items={soilLibrary} onOpenChange={setSoilLibraryOpen} onAppearanceChange={changeSoilAppearance} onSelect={item => { selectCodeSummary(item); setSoilLibraryOpen(false) }} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
   )

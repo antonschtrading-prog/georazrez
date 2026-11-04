@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SOIL_APPEARANCE,
   getCoreBoreholeBoundaryIssues,
   getCoreBoundaryModel,
   getCoreIssues,
@@ -10,7 +11,7 @@ import {
   type CoreLayer,
   type CoreModel
 } from './geologyCore'
-import { getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GapDecision, type GapDecisionKind, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityItem, type CodeStatus, type GapDecision, type GapDecisionKind, type SoilAppearance, type SoilCharacteristicField, type SoilCharacteristicKey, type SoilHatch } from '@/types/geology'
 
 function withActivity(
   model: CoreModel,
@@ -423,6 +424,55 @@ export function changeCoreCharacteristic(
           [property]: { ...previousRecord, [field]: normalizedValue }
         }
       }
+    }
+  }
+}
+
+export type CoreSoilAppearanceField = keyof SoilAppearance
+
+/** Оформление не меняет геологию и не снимает подтверждение инженерной проверки. */
+export function changeCoreSoilAppearance(
+  model: CoreModel,
+  code: string,
+  field: CoreSoilAppearanceField,
+  value: string,
+  now = new Date()
+): CoreModel {
+  const key = getIgeKey(code)
+  if (key === '__unassigned__') return model
+  let normalized = value
+  if (field === 'color') {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(value)) throw new Error('Цвет грунта должен быть шестизначным HEX, например #D6C7A1')
+    normalized = value.toUpperCase()
+  } else {
+    if (!SOIL_HATCHES.includes(value as SoilHatch)) throw new Error('Выбранный тип штриховки не поддерживается')
+  }
+  const previousPassport = model.passports[key] || {
+    key,
+    name: '',
+    description: '',
+    notes: '',
+    characteristics: {}
+  }
+  const previousAppearance = previousPassport.appearance || DEFAULT_SOIL_APPEARANCE
+  if (previousAppearance[field] === normalized) return model
+  const appearance: SoilAppearance = field === 'color'
+    ? { ...previousAppearance, color: normalized }
+    : { ...previousAppearance, hatch: normalized as SoilHatch }
+  const detail = field === 'color' ? `цвет ${normalized}` : `штриховка «${SOIL_HATCH_LABELS[appearance.hatch]}»`
+  const next = withActivity(
+    model,
+    model.boreholes,
+    `ИГЭ ${code}: изменено условное оформление, ${detail}`,
+    now,
+    'manual',
+    passportActivityMetadata(model, key)
+  )
+  return {
+    ...next,
+    passports: {
+      ...model.passports,
+      [key]: { ...previousPassport, appearance }
     }
   }
 }

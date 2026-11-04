@@ -135,11 +135,31 @@ export interface SoilCharacteristicRecord {
   source: string
 }
 
+export const SOIL_HATCHES = ['none', 'diagonal', 'cross', 'dots', 'horizontal', 'vertical', 'grid'] as const
+export type SoilHatch = typeof SOIL_HATCHES[number]
+
+export const SOIL_HATCH_LABELS: Record<SoilHatch, string> = {
+  none: 'Без штриховки',
+  diagonal: 'Диагональная',
+  cross: 'Встречная диагональная',
+  dots: 'Точечная',
+  horizontal: 'Горизонтальная',
+  vertical: 'Вертикальная',
+  grid: 'Сетка'
+}
+
+/** Только условное оформление профиля, не классификация и не характеристика грунта. */
+export interface SoilAppearance {
+  color: string
+  hatch: SoilHatch
+}
+
 export interface IgePassport {
   name: string
   description: string
   notes: string
   characteristics?: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
+  appearance?: SoilAppearance
 }
 
 export interface ManualCorrelation {
