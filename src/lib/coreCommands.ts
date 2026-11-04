@@ -4,7 +4,7 @@ import {
   type CoreLayer,
   type CoreModel
 } from './geologyCore'
-import { getIgeKey, type ActivityItem, type CodeStatus } from '@/types/geology'
+import { getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 function withActivity(
   model: CoreModel,
@@ -253,4 +253,108 @@ export function setCoreBoreholeReviewed(
     reviewed ? `${borehole.name}: проверка подтверждена инженером` : `${borehole.name}: подтверждение проверки снято`,
     now
   )
+}
+
+export type CorePassportField = 'name' | 'description' | 'notes'
+
+const PASSPORT_FIELD_LABELS: Record<CorePassportField, string> = {
+  name: 'наименование',
+  description: 'описание грунта',
+  notes: 'примечание'
+}
+
+const CHARACTERISTIC_FIELD_LABELS: Record<SoilCharacteristicField, string> = {
+  standard: 'нормативное значение',
+  design: 'расчётное значение',
+  source: 'источник'
+}
+
+function resetPassportReview(model: CoreModel, key: string): CoreBorehole[] {
+  return model.boreholes.map(borehole => borehole.layers.some(layer =>
+    (layer.igeKey ?? getIgeKey(layer.igeCode)) === key
+  ) ? resetReview(borehole) : borehole)
+}
+
+export function changeCorePassport(
+  model: CoreModel,
+  code: string,
+  field: CorePassportField,
+  value: string,
+  now = new Date()
+): CoreModel {
+  const key = getIgeKey(code)
+  if (key === '__unassigned__') return model
+  const previous = model.passports[key] || {
+    key,
+    name: '',
+    description: '',
+    notes: '',
+    characteristics: {}
+  }
+  if (previous[field] === value) return model
+  const next = withActivity(
+    model,
+    resetPassportReview(model, key),
+    `ИГЭ ${code}: изменено поле «${PASSPORT_FIELD_LABELS[field]}» паспорта`,
+    now
+  )
+  return {
+    ...next,
+    passports: {
+      ...model.passports,
+      [key]: { ...previous, [field]: value }
+    }
+  }
+}
+
+export function changeCoreCharacteristic(
+  model: CoreModel,
+  code: string,
+  property: SoilCharacteristicKey,
+  field: SoilCharacteristicField,
+  value: number | string | null,
+  now = new Date()
+): CoreModel {
+  const key = getIgeKey(code)
+  if (key === '__unassigned__') return model
+  const characteristic = SOIL_CHARACTERISTICS.find(item => item.key === property)
+  if (!characteristic) throw new Error('Характеристика грунта не найдена')
+  let normalizedValue: number | string | null
+  if (field === 'source') normalizedValue = String(value ?? '')
+  else if (value === null) normalizedValue = null
+  else if (typeof value === 'number' && Number.isFinite(value)) normalizedValue = value
+  else throw new Error('Нормативное или расчётное значение должно быть конечным числом либо пустым')
+
+  const previousPassport = model.passports[key] || {
+    key,
+    name: '',
+    description: '',
+    notes: '',
+    characteristics: {}
+  }
+  const previousRecord = previousPassport.characteristics[property] || {
+    standard: null,
+    design: null,
+    source: ''
+  }
+  if (previousRecord[field] === normalizedValue) return model
+  const next = withActivity(
+    model,
+    resetPassportReview(model, key),
+    `ИГЭ ${code}: ${characteristic.label}, изменено поле «${CHARACTERISTIC_FIELD_LABELS[field]}»`,
+    now
+  )
+  return {
+    ...next,
+    passports: {
+      ...model.passports,
+      [key]: {
+        ...previousPassport,
+        characteristics: {
+          ...previousPassport.characteristics,
+          [property]: { ...previousRecord, [field]: normalizedValue }
+        }
+      }
+    }
+  }
 }

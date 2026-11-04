@@ -10,21 +10,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
-import { addCoreLayer, changeCoreLayerCode, changeCoreLayerDepth, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
-import { getIgeKey, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { addCoreLayer, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
+import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
-const PASSPORT_FIELD_LABELS = {
-  name: 'наименование',
-  description: 'описание грунта',
-  notes: 'примечание'
-} as const
-const CHARACTERISTIC_FIELD_LABELS: Record<SoilCharacteristicField, string> = {
-  standard: 'нормативное значение',
-  design: 'расчётное значение',
-  source: 'источник'
-}
 
 export default function App() {
   const [project, setProject] = useState<GeoProject | null>(null)
@@ -206,20 +196,9 @@ export default function App() {
   }
 
   const changePassport = (code: string, field: 'name' | 'description' | 'notes', value: string) => {
-    const key = getIgeKey(code)
-    if (!project || key === '__unassigned__') return
-    commitProject(current => {
-      const previous = current.igePassports?.[key] || { name: '', description: '', notes: '' }
-      if (previous[field] === value) return current
-      return addActivity({
-        ...current,
-        igePassports: { ...current.igePassports, [key]: { ...previous, [field]: value } },
-        columns: current.columns.map(column => column.layers.some(layer => getIgeKey(layer.ige) === key)
-          ? { ...column, isReviewed: false, reviewedAt: '' }
-          : column)
-      }, `ИГЭ ${code}: изменено поле «${PASSPORT_FIELD_LABELS[field]}» паспорта`)
-    })
-    toast.success(`Паспорт ИГЭ ${code} обновлён`)
+    if (commitCore(current => changeCorePassport(current, code, field, value))) {
+      toast.success(`Паспорт ИГЭ ${code} обновлён`)
+    }
   }
 
   const changeCharacteristic = (
@@ -228,29 +207,9 @@ export default function App() {
     field: SoilCharacteristicField,
     value: number | string | null
   ) => {
-    const key = getIgeKey(code)
-    if (!project || key === '__unassigned__') return
-    const normalizedValue = field === 'source' ? String(value ?? '') : typeof value === 'number' && Number.isFinite(value) ? value : null
-    commitProject(current => {
-      const previousPassport = current.igePassports?.[key] || { name: '', description: '', notes: '' }
-      const previousRecord = previousPassport.characteristics?.[property] || { standard: null, design: null, source: '' }
-      if (previousRecord[field] === normalizedValue) return current
-      const nextPassport: IgePassport = {
-        ...previousPassport,
-        characteristics: {
-          ...previousPassport.characteristics,
-          [property]: { ...previousRecord, [field]: normalizedValue }
-        }
-      }
-      return addActivity({
-        ...current,
-        igePassports: { ...current.igePassports, [key]: nextPassport },
-        columns: current.columns.map(column => column.layers.some(layer => getIgeKey(layer.ige) === key)
-          ? { ...column, isReviewed: false, reviewedAt: '' }
-          : column)
-      }, `ИГЭ ${code}: ${SOIL_CHARACTERISTICS.find(item => item.key === property)?.label}, изменено поле «${CHARACTERISTIC_FIELD_LABELS[field]}»`)
-    })
-    toast.success(`Характеристика ИГЭ ${code} обновлена`)
+    if (commitCore(current => changeCoreCharacteristic(current, code, property, field, value))) {
+      toast.success(`Характеристика ИГЭ ${code} обновлена`)
+    }
   }
 
   const addLayer = (depth: number, code: string) => {
@@ -384,8 +343,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.22 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.22</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.23 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.23</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
