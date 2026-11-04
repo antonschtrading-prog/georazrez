@@ -174,6 +174,8 @@
 .canvas-pan-surface { cursor: grab; }
 .canvas-pan-surface:active { cursor: grabbing; }
 .geo-lines { stroke: oklch(38% .015 95); stroke-width: .85; fill: none; pointer-events: none; }
+.calculated-boundaries { stroke: oklch(38% .015 95); stroke-width: .85; fill: none; pointer-events: none; }
+.calculated-boundary.manual { stroke: var(--info); stroke-width: 1.35; }
 .geo-circles { stroke: var(--ink-soft); stroke-width: .75; fill: var(--canvas-bg); pointer-events: none; }
 .geo-texts { fill: var(--ink-soft); font-family: 'IBM Plex Sans', sans-serif; font-size: 2.25px; dominant-baseline: middle; pointer-events: none; }
 .column-hit-area { fill: transparent; cursor: pointer; outline: none; }

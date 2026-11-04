@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react'
 import type { Borehole, GeoProject, Layer } from '@/types/geology'
+import type { CoreBoundaryModel } from '@/lib/geologyCore'
 
 type View = { cx: number; cy: number; w: number; h: number }
 type DepthDrag = { pointerId: number; startY: number; startDepth: number; min: number; max: number; lastDepth: number }
 
 interface Props {
   project: GeoProject
+  boundaries: CoreBoundaryModel
   selectedId: string
   selectedLayer: Layer | null
   onSelect: (id: string) => void
@@ -18,7 +20,7 @@ interface Props {
   focusToken: number
 }
 
-export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
+export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
@@ -91,11 +93,12 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, on
     const top = view.cy + view.h / 2 + 10, bottom = view.cy - view.h / 2 - 10
     return {
       segments: project.geometry.segments.filter(s => Math.max(s.x1, s.x2) >= left && Math.min(s.x1, s.x2) <= right && Math.max(s.y1, s.y2) >= bottom && Math.min(s.y1, s.y2) <= top),
+      boundaries: boundaries.items.filter(item => item.status === 'connected' && item.y1 !== null && item.y2 !== null && Math.max(item.x1, item.x2) >= left && Math.min(item.x1, item.x2) <= right && Math.max(item.y1, item.y2) >= bottom && Math.min(item.y1, item.y2) <= top),
       circles: project.geometry.circles.filter(c => c.x + c.r >= left && c.x - c.r <= right && c.y + c.r >= bottom && c.y - c.r <= top),
       texts: project.geometry.texts.filter(t => t.x >= left && t.x <= right && t.y >= bottom && t.y <= top),
       columns: project.columns.filter(c => c.x >= left && c.x <= right)
     }
-  }, [project, view])
+  }, [project, boundaries, view])
 
   const layerLimits = () => {
     if (!selected || !selectedLayer) return { min: 0.01, max: 1000 }
@@ -141,6 +144,17 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, on
             {visible.segments.map((s, i) => (
               <line key={`${s.handle || 's'}-${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} vectorEffect="non-scaling-stroke" />
             ))}
+          </g>
+          <g className="calculated-boundaries">
+            {visible.boundaries.map(boundary => <line
+              key={boundary.id}
+              className={`calculated-boundary ${boundary.manual ? 'manual' : ''}`}
+              data-boundary={boundary.id}
+              data-left-layer={boundary.leftLayerId || ''}
+              data-right-layer={boundary.rightLayerId || ''}
+              x1={boundary.x1} y1={boundary.y1!} x2={boundary.x2} y2={boundary.y2!}
+              vectorEffect="non-scaling-stroke"
+            />)}
           </g>
           {(showCodes || selectedLayer) && detail && <g className="geo-circles">
             {visible.circles.filter(c => showCodes || candidateKeys.has(`${c.x}|${c.y}`)).map((c, i) => {
@@ -268,7 +282,7 @@ export function ProfileCanvas({ project, selectedId, selectedLayer, onSelect, on
         <button type="button" onClick={() => zoom(0.8)} title="Увеличить" aria-label="Увеличить"><Plus size={16} /></button>
         <button type="button" onClick={() => focus(selected)} title="Показать выбранную скважину" aria-label="Показать выбранную скважину"><Crosshair size={16} /></button>
       </div>
-      <div className="canvas-position-readout">В поле: {visible.columns.length} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}</div>
+      <div className="canvas-position-readout">В поле: {visible.columns.length} · Границы: {boundaries.connected} · Разрывы: {boundaries.gaps + boundaries.invalid} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}</div>
     </div>
   )
 }

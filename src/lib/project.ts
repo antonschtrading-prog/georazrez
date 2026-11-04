@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -112,6 +112,45 @@ export async function exportWorkbook(project: GeoProject) {
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
   sheet.autoFilter = { from: 'A1', to: 'M1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const boundarySheet = workbook.addWorksheet('Расчётные границы')
+  boundarySheet.columns = [
+    { header: 'Левая скважина', key: 'leftName', width: 28 },
+    { header: 'ПК слева', key: 'leftPk', width: 16 },
+    { header: 'Правая скважина', key: 'rightName', width: 28 },
+    { header: 'ПК справа', key: 'rightPk', width: 16 },
+    { header: 'Подошва №', key: 'ordinal', width: 13 },
+    { header: 'Глубина слева, м', key: 'leftDepth', width: 21 },
+    { header: 'Глубина справа, м', key: 'rightDepth', width: 21 },
+    { header: 'ИГЭ слева', key: 'leftCode', width: 16 },
+    { header: 'ИГЭ справа', key: 'rightCode', width: 16 },
+    { header: 'Статус корреляции', key: 'status', width: 30 },
+    { header: 'Источник глубин', key: 'source', width: 25 }
+  ]
+  const boundaryModel = getCoreBoundaryModel(coreModel)
+  for (const item of boundaryModel.items) {
+    const row = boundarySheet.addRow({
+      leftName: item.leftBoreholeName,
+      leftPk: formatPk(item.leftPk),
+      rightName: item.rightBoreholeName,
+      rightPk: formatPk(item.rightPk),
+      ordinal: item.ordinal,
+      leftDepth: item.leftDepth,
+      rightDepth: item.rightDepth,
+      leftCode: item.leftCode,
+      rightCode: item.rightCode,
+      status: item.status === 'connected' ? 'Соединена'
+        : item.status === 'left-only' ? 'Нет парной подошвы справа'
+          : item.status === 'right-only' ? 'Нет парной подошвы слева' : 'Некорректная глубина или масштаб',
+      source: item.manual ? 'Есть ручная глубина' : 'Исходный DXF'
+    })
+    row.getCell(6).numFmt = '0.00'
+    row.getCell(7).numFmt = '0.00'
+  }
+  boundarySheet.getRow(1).font = { bold: true }
+  boundarySheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  boundarySheet.autoFilter = { from: 'A1', to: 'K1' }
+  boundarySheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
   codeSummary.columns = [

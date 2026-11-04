@@ -79,6 +79,38 @@ export interface CoreModel {
   passports: Record<string, CoreIgePassport>
 }
 
+export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'invalid'
+
+export interface CoreBoundaryItem {
+  id: string
+  ordinal: number
+  leftBoreholeId: string
+  rightBoreholeId: string
+  leftBoreholeName: string
+  rightBoreholeName: string
+  leftPk: number
+  rightPk: number
+  leftLayerId: string | null
+  rightLayerId: string | null
+  leftDepth: number | null
+  rightDepth: number | null
+  leftCode: string
+  rightCode: string
+  x1: number
+  y1: number | null
+  x2: number
+  y2: number | null
+  status: CoreBoundaryStatus
+  manual: boolean
+}
+
+export interface CoreBoundaryModel {
+  items: CoreBoundaryItem[]
+  connected: number
+  gaps: number
+  invalid: number
+}
+
 export interface CoreDxfExtraction {
   geo: GeoProject['geometry']
   columns: {
@@ -394,6 +426,62 @@ export function getCoreLayerDepthIssue(layers: CoreLayer[], index: number): Laye
 /** Мощность является производной величиной и не сохраняется в модели. */
 export function getCoreLayerThickness(layers: CoreLayer[], index: number): number {
   return layers[index].bottomDepth - (layers[index - 1]?.bottomDepth ?? 0)
+}
+
+/**
+ * Расчётные границы соединяют только одноимённые по порядку подошвы соседних
+ * активных колонок. Разный состав слоёв остаётся видимым разрывом корреляции:
+ * программа не создаёт выклинивание и не изменяет исходную геометрию DXF.
+ */
+export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
+  const items: CoreBoundaryItem[] = []
+  const active = model.boreholes.filter(borehole => borehole.included)
+  const drawingY = (borehole: CoreBorehole, depth: number) =>
+    borehole.drawing.top - depth * (1000 / model.project.verticalScale)
+
+  for (let pairIndex = 0; pairIndex < active.length - 1; pairIndex += 1) {
+    const left = active[pairIndex]
+    const right = active[pairIndex + 1]
+    const boundaryCount = Math.max(left.layers.length, right.layers.length)
+    for (let layerIndex = 0; layerIndex < boundaryCount; layerIndex += 1) {
+      const leftLayer = left.layers[layerIndex] || null
+      const rightLayer = right.layers[layerIndex] || null
+      const leftDepthIssue = leftLayer ? getCoreLayerDepthIssue(left.layers, layerIndex) : null
+      const rightDepthIssue = rightLayer ? getCoreLayerDepthIssue(right.layers, layerIndex) : null
+      const status: CoreBoundaryStatus = !leftLayer ? 'right-only'
+        : !rightLayer ? 'left-only'
+          : leftDepthIssue || rightDepthIssue || !Number.isFinite(model.project.verticalScale) || model.project.verticalScale <= 0 ? 'invalid' : 'connected'
+      items.push({
+        id: `boundary-${left.id}-${right.id}-${layerIndex + 1}`,
+        ordinal: layerIndex + 1,
+        leftBoreholeId: left.id,
+        rightBoreholeId: right.id,
+        leftBoreholeName: left.name,
+        rightBoreholeName: right.name,
+        leftPk: left.pk,
+        rightPk: right.pk,
+        leftLayerId: leftLayer?.id || null,
+        rightLayerId: rightLayer?.id || null,
+        leftDepth: leftLayer?.bottomDepth ?? null,
+        rightDepth: rightLayer?.bottomDepth ?? null,
+        leftCode: leftLayer?.igeCode || '',
+        rightCode: rightLayer?.igeCode || '',
+        x1: left.drawing.x,
+        y1: leftLayer && status === 'connected' ? drawingY(left, leftLayer.bottomDepth) : null,
+        x2: right.drawing.x,
+        y2: rightLayer && status === 'connected' ? drawingY(right, rightLayer.bottomDepth) : null,
+        status,
+        manual: leftLayer?.depthSource === 'manual' || rightLayer?.depthSource === 'manual'
+      })
+    }
+  }
+
+  return {
+    items,
+    connected: items.filter(item => item.status === 'connected').length,
+    gaps: items.filter(item => item.status === 'left-only' || item.status === 'right-only').length,
+    invalid: items.filter(item => item.status === 'invalid').length
+  }
 }
 
 /**
