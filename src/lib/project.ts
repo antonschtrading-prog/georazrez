@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -249,6 +249,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Слоёв', key: 'layers', width: 12 },
     { header: 'Требуют проверки', key: 'issues', width: 20 },
     { header: 'Проблемы глубин', key: 'depthIssues', width: 20 },
+    { header: 'Ошибки границ', key: 'boundaryIssues', width: 18 },
     { header: 'Источник имени', key: 'named', width: 22 },
     { header: 'В расчёте', key: 'included', width: 16 },
     { header: 'Проверка завершена', key: 'reviewed', width: 22 },
@@ -259,10 +260,12 @@ export async function exportWorkbook(project: GeoProject) {
     const coreColumn = coreModel.boreholes.find(item => item.id === column.id)!
     const depthIssueCount = coreColumn.layers.reduce((sum, _layer, index) => sum + (getCoreLayerDepthIssue(coreColumn.layers, index) ? 1 : 0), 0)
     const codeIssueCount = column.layers.filter(layer => layer.status === 'ambiguous' || layer.status === 'not-found').length
+    const boundaryIssueCount = column.isExcluded ? 0 : getCoreBoreholeBoundaryIssues(boundaryModel, column.id).length
     control.addRow({
       index: column.index, name: column.name, pk: formatPk(column.pk), layers: column.layers.length,
-      issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (column.sourceNamed ? 0 : 1),
+      issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (column.sourceNamed ? 0 : 1) + boundaryIssueCount,
       depthIssues: column.isExcluded ? 0 : depthIssueCount,
+      boundaryIssues: boundaryIssueCount,
       named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
       included: column.isExcluded ? 'Нет' : 'Да',
       reviewed: column.isReviewed && !column.isExcluded ? 'Да' : 'Нет',

@@ -580,6 +580,15 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
   }
 }
 
+/** Некорректные границы относятся к обеим скважинам; обычные разрывы сюда не входят. */
+export function getCoreBoreholeBoundaryIssues(
+  boundaries: CoreBoundaryModel,
+  boreholeId: string
+): CoreBoundaryItem[] {
+  return boundaries.items.filter(item => item.status === 'invalid' &&
+    (item.leftBoreholeId === boreholeId || item.rightBoreholeId === boreholeId))
+}
+
 /**
  * Геологическая очередь читает уже доказанные статусы и кандидатов.
  * Она не запускает распознавание заново и не заменяет ручные решения.

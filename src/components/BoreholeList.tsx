@@ -1,20 +1,34 @@
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { formatPk, type GeoIssue, type GeoProject } from '@/types/geology'
+import type { CoreBoundaryModel } from '@/lib/geologyCore'
 
 interface Props {
   project: GeoProject
   issues: GeoIssue[]
+  boundaries: CoreBoundaryModel
   selectedId: string
   onSelect: (id: string) => void
 }
 
 type Filter = 'all' | 'issues' | 'controls' | 'reviewed'
 
-export function BoreholeList({ project, issues, selectedId, onSelect }: Props) {
+export function BoreholeList({ project, issues, boundaries, selectedId, onSelect }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const problemIds = useMemo(() => new Set(issues.map(issue => issue.boreholeId)), [issues])
+  const boundaryCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of boundaries.items) {
+      if (item.status !== 'invalid') continue
+      counts.set(item.leftBoreholeId, (counts.get(item.leftBoreholeId) || 0) + 1)
+      counts.set(item.rightBoreholeId, (counts.get(item.rightBoreholeId) || 0) + 1)
+    }
+    return counts
+  }, [boundaries])
+  const problemIds = useMemo(() => new Set([
+    ...issues.map(issue => issue.boreholeId),
+    ...boundaryCounts.keys()
+  ]), [issues, boundaryCounts])
   const reviewedCount = project.columns.filter(column => column.isReviewed && !column.isExcluded).length
   const filtered = project.columns.filter(column => {
     const matchesQuery = column.name.toLowerCase().includes(query.trim().toLowerCase()) || formatPk(column.pk).includes(query.trim())
@@ -42,7 +56,9 @@ export function BoreholeList({ project, issues, selectedId, onSelect }: Props) {
       </div>
       <div className="borehole-list" role="list">
         {filtered.map(column => {
-          const count = issues.filter(issue => issue.boreholeId === column.id).length
+          const geologicalCount = issues.filter(issue => issue.boreholeId === column.id).length
+          const boundaryCount = boundaryCounts.get(column.id) || 0
+          const count = geologicalCount + boundaryCount
           return (
             <button
               type="button"
@@ -50,11 +66,12 @@ export function BoreholeList({ project, issues, selectedId, onSelect }: Props) {
               key={column.id}
               className={`borehole-item ${selectedId === column.id ? 'selected' : ''} ${column.isExcluded ? 'excluded' : ''} ${column.isReviewed ? 'reviewed' : ''}`}
               onClick={() => onSelect(column.id)}
+              title={boundaryCount ? `${column.name}: некорректных границ корреляции — ${boundaryCount}` : undefined}
             >
               <span className={`borehole-status ${column.isExcluded ? 'excluded' : column.isReviewed ? 'reviewed' : count ? 'has-issues' : 'clear'}`} aria-hidden="true" />
               <span className="borehole-copy">
                 <strong>{column.name}</strong>
-                <span>ПК {formatPk(column.pk)} · {column.layers.length} слоёв</span>
+                <span>ПК {formatPk(column.pk)} · {column.layers.length} слоёв{boundaryCount ? ` · ошибок границ: ${boundaryCount}` : ''}</span>
               </span>
               <span className="borehole-index">{String(column.index).padStart(2, '0')}</span>
             </button>
@@ -62,7 +79,7 @@ export function BoreholeList({ project, issues, selectedId, onSelect }: Props) {
         })}
         {!filtered.length && <div className="empty-list">Ничего не найдено.<br />Измените запрос или фильтр.</div>}
       </div>
-      <div className="panel-footnote"><span className="status-dot success" /> {reviewedCount} проверено <span className="footnote-divider">·</span> <span className="status-dot warning" /> {issues.length} требуют решения</div>
+      <div className="panel-footnote"><span className="status-dot success" /> {reviewedCount} проверено <span className="footnote-divider">·</span> <span className="status-dot warning" /> {issues.length + boundaries.invalid} требуют решения</div>
     </aside>
   )
 }

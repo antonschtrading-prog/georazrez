@@ -379,6 +379,10 @@
 .column-review-section .button { width: 100%; min-height: 34px; font-size: 10px; }
 .column-review-section .button:disabled { opacity: .45; cursor: default; }
 .verification-section { padding-bottom: 14px; }
+.review-boundary-issues { display: grid; gap: 7px; margin: 0 0 12px; }
+.review-boundary-issue { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--gray-90); }
+.review-boundary-issue strong { color: var(--danger); font-size: 10px; font-weight: 500; line-height: 1.4; }
+.review-boundary-issue span { color: var(--muted-text); font-size: 10px; line-height: 1.45; }
 .verification-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .verification-heading > span { color: var(--muted-text); font-size: 9px; }
 .verification-heading > span.reviewed { color: var(--success); }
