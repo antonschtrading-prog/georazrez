@@ -432,33 +432,71 @@ export function addCoreManualCorrelation(
   return { ...next, manualCorrelations: [...model.manualCorrelations, correlation] }
 }
 
-export function updateCoreManualCorrelationNote(
+export function updateCoreManualCorrelation(
   model: CoreModel,
   correlationId: string,
+  leftLayerId: string,
+  rightLayerId: string,
   note: string,
   now = new Date()
 ): CoreModel {
   const normalizedNote = note.trim()
   if (!normalizedNote) throw new Error('Укажите инженерное обоснование корреляции')
   const correlation = model.manualCorrelations.find(item => item.id === correlationId)
-  if (!correlation || correlation.note === normalizedNote) return model
-  const left = findLayerOwner(model, correlation.leftLayerId)
-  const right = findLayerOwner(model, correlation.rightLayerId)
-  if (!left || !right) throw new Error('Нельзя изменить обоснование: подошва корреляции не найдена')
-  const leftLayer = requireLayer(left, correlation.leftLayerId)
-  const rightLayer = requireLayer(right, correlation.rightLayerId)
+  if (!correlation) return model
+  if (correlation.leftLayerId === leftLayerId && correlation.rightLayerId === rightLayerId && correlation.note === normalizedNote) return model
+  if (leftLayerId === rightLayerId) throw new Error('Подошва не может коррелироваться сама с собой')
+  const left = findLayerOwner(model, leftLayerId)
+  const right = findLayerOwner(model, rightLayerId)
+  if (!left || !right) throw new Error('Нельзя изменить корреляцию: подошва не найдена')
+  const active = model.boreholes.filter(borehole => borehole.included)
+  const leftIndex = active.findIndex(borehole => borehole.id === left.id)
+  const rightIndex = active.findIndex(borehole => borehole.id === right.id)
+  if (leftIndex < 0 || rightIndex < 0 || Math.abs(leftIndex - rightIndex) !== 1) {
+    throw new Error('Ручная корреляция допускается только между соседними активными скважинами')
+  }
+  if (leftIndex > rightIndex) throw new Error('При изменении связи сохраняйте порядок скважин слева направо')
+  const conflict = model.manualCorrelations.find(item => {
+    if (item.id === correlationId) return false
+    const existingLeft = findLayerOwner(model, item.leftLayerId)
+    const existingRight = findLayerOwner(model, item.rightLayerId)
+    return existingLeft?.id === left.id && existingRight?.id === right.id &&
+      (item.leftLayerId === leftLayerId || item.rightLayerId === rightLayerId)
+  })
+  if (conflict) throw new Error('Одна из подошв уже имеет ручную корреляцию в этой паре скважин')
+  const leftLayer = requireLayer(left, leftLayerId)
+  const rightLayer = requireLayer(right, rightLayerId)
+  const previousLeft = findLayerOwner(model, correlation.leftLayerId)
+  const previousRight = findLayerOwner(model, correlation.rightLayerId)
+  const previousLeftLayer = previousLeft?.layers.find(layer => layer.id === correlation.leftLayerId)
+  const previousRightLayer = previousRight?.layers.find(layer => layer.id === correlation.rightLayerId)
+  const linkChanged = correlation.leftLayerId !== leftLayerId || correlation.rightLayerId !== rightLayerId
+  const activityText = linkChanged
+    ? `${left.name}, подошва ${previousLeftLayer?.ordinal ?? '—'} ↔ ${right.name}, подошва ${previousRightLayer?.ordinal ?? '—'}: ручная корреляция изменена на ${leftLayer.ordinal} ↔ ${rightLayer.ordinal}. Обоснование: ${normalizedNote}`
+    : `${left.name}, подошва ${leftLayer.ordinal} ↔ ${right.name}, подошва ${rightLayer.ordinal}: изменено обоснование ручной корреляции. Новое обоснование: ${normalizedNote}`
   const next = withActivity(
     model,
     model.boreholes.map(borehole => borehole.id === left.id || borehole.id === right.id ? resetReview(borehole) : borehole),
-    `${left.name}, подошва ${leftLayer.ordinal} ↔ ${right.name}, подошва ${rightLayer.ordinal}: изменено обоснование ручной корреляции. Новое обоснование: ${normalizedNote}`,
+    activityText,
     now
   )
   return {
     ...next,
     manualCorrelations: model.manualCorrelations.map(item => item.id === correlationId
-      ? { ...item, note: normalizedNote }
+      ? { ...item, leftLayerId, rightLayerId, note: normalizedNote }
       : item)
   }
+}
+
+export function updateCoreManualCorrelationNote(
+  model: CoreModel,
+  correlationId: string,
+  note: string,
+  now = new Date()
+): CoreModel {
+  const correlation = model.manualCorrelations.find(item => item.id === correlationId)
+  if (!correlation) return model
+  return updateCoreManualCorrelation(model, correlationId, correlation.leftLayerId, correlation.rightLayerId, note, now)
 }
 
 export function removeCoreManualCorrelation(
