@@ -17,7 +17,8 @@ function withActivity(
   boreholes: CoreBorehole[],
   text: string,
   now: Date,
-  type: ActivityItem['type'] = 'manual'
+  type: ActivityItem['type'] = 'manual',
+  metadata: Partial<Pick<ActivityItem, 'category' | 'boreholeIds' | 'layerIds' | 'passportKeys'>> = {}
 ): CoreModel {
   return {
     ...model,
@@ -25,7 +26,7 @@ function withActivity(
     project: {
       ...model.project,
       activity: [
-        { id: `event-${now.getTime()}-${Math.random()}`, type, text, at: now.toLocaleString('ru-RU') },
+        { ...metadata, id: `event-${now.getTime()}-${Math.random()}`, type, text, at: now.toLocaleString('ru-RU') },
         ...model.project.activity
       ].slice(0, 100)
     }
@@ -50,6 +51,10 @@ function resetReview(borehole: CoreBorehole): CoreBorehole {
 
 function replaceBorehole(model: CoreModel, next: CoreBorehole): CoreBorehole[] {
   return model.boreholes.map(item => item.id === next.id ? next : item)
+}
+
+function uniqueIds(ids: Array<string | null | undefined>): string[] {
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))]
 }
 
 function renumberLayers(layers: CoreLayer[]): CoreLayer[] {
@@ -80,7 +85,9 @@ export function renameCoreBorehole(
     model,
     replaceBorehole(model, next),
     `Скважина №${borehole.index}: наименование изменено с «${borehole.name}» на «${name.trim() || 'без имени'}»`,
-    now
+    now,
+    'manual',
+    { category: 'geology', boreholeIds: [boreholeId] }
   )
 }
 
@@ -114,7 +121,9 @@ export function changeCoreLayerDepth(
     model,
     replaceBorehole(model, nextBorehole),
     `${borehole.name}: глубина слоя ${index + 1} изменена с ${String(layer.bottomDepth).replace('.', ',')} на ${String(depth).replace('.', ',')} м`,
-    now
+    now,
+    'manual',
+    { category: 'geology', boreholeIds: [boreholeId], layerIds: [layerId] }
   )
 }
 
@@ -145,7 +154,9 @@ export function changeCoreLayerCode(
     model,
     replaceBorehole(model, nextBorehole),
     `${borehole.name}, ${String(layer.bottomDepth).replace('.', ',')} м: ИГЭ ${code || 'не задан'}`,
-    now
+    now,
+    'manual',
+    { category: 'geology', boreholeIds: [boreholeId], layerIds: [layerId] }
   )
 }
 
@@ -197,7 +208,9 @@ export function addCoreLayer(
       model,
       replaceBorehole(model, nextBorehole),
       `${borehole.name}: добавлена подошва ${String(depth).replace('.', ',')} м${code ? `, ИГЭ ${code}` : ', код ИГЭ требует проверки'}`,
-      now
+      now,
+      'manual',
+      { category: 'geology', boreholeIds: [boreholeId], layerIds: [layerId] }
     ),
     layerId
   }
@@ -226,7 +239,9 @@ export function deleteCoreLayer(
     model,
     replaceBorehole(model, nextBorehole),
     `${borehole.name}: удалена подошва ${String(layer.bottomDepth).replace('.', ',')} м${layer.igeCode ? `, ИГЭ ${layer.igeCode}` : ''}`,
-    now
+    now,
+    'manual',
+    { category: 'geology', boreholeIds: [boreholeId], layerIds: [layerId] }
   )
 }
 
@@ -250,7 +265,9 @@ export function setCoreBoreholeIncluded(
     model,
     replaceBorehole(model, next),
     included ? `${borehole.name}: возвращена в расчёт` : `${borehole.name}: исключена из расчёта. Причина: ${reason}`,
-    now
+    now,
+    'manual',
+    { category: 'review', boreholeIds: [boreholeId] }
   )
 }
 
@@ -280,7 +297,9 @@ export function setCoreBoreholeReviewed(
     model,
     replaceBorehole(model, next),
     reviewed ? `${borehole.name}: проверка подтверждена инженером` : `${borehole.name}: подтверждение проверки снято`,
-    now
+    now,
+    'manual',
+    { category: 'review', boreholeIds: [boreholeId] }
   )
 }
 
@@ -304,6 +323,22 @@ function resetPassportReview(model: CoreModel, key: string): CoreBorehole[] {
   ) ? resetReview(borehole) : borehole)
 }
 
+function passportActivityMetadata(
+  model: CoreModel,
+  key: string
+): Pick<ActivityItem, 'category' | 'boreholeIds' | 'layerIds' | 'passportKeys'> {
+  const borehole = model.boreholes.find(column => column.layers.some(layer =>
+    (layer.igeKey ?? getIgeKey(layer.igeCode)) === key
+  ))
+  const layer = borehole?.layers.find(item => (item.igeKey ?? getIgeKey(item.igeCode)) === key)
+  return {
+    category: 'passport',
+    boreholeIds: borehole ? [borehole.id] : [],
+    layerIds: layer ? [layer.id] : [],
+    passportKeys: [key]
+  }
+}
+
 export function changeCorePassport(
   model: CoreModel,
   code: string,
@@ -325,7 +360,9 @@ export function changeCorePassport(
     model,
     resetPassportReview(model, key),
     `ИГЭ ${code}: изменено поле «${PASSPORT_FIELD_LABELS[field]}» паспорта`,
-    now
+    now,
+    'manual',
+    passportActivityMetadata(model, key)
   )
   return {
     ...next,
@@ -371,7 +408,9 @@ export function changeCoreCharacteristic(
     model,
     resetPassportReview(model, key),
     `ИГЭ ${code}: ${characteristic.label}, изменено поле «${CHARACTERISTIC_FIELD_LABELS[field]}»`,
-    now
+    now,
+    'manual',
+    passportActivityMetadata(model, key)
   )
   return {
     ...next,
@@ -443,7 +482,9 @@ export function addCoreManualCorrelation(
     model,
     model.boreholes.map(borehole => borehole.id === left.id || borehole.id === right.id ? resetReview(borehole) : borehole),
     `${left.name}, подошва ${leftLayer.ordinal} ↔ ${right.name}, подошва ${rightLayer.ordinal}: добавлена ручная корреляция. Обоснование: ${correlation.note}`,
-    now
+    now,
+    'manual',
+    { category: 'correlation', boreholeIds: [left.id, right.id], layerIds: [leftLayerId, rightLayerId] }
   )
   return { ...next, manualCorrelations: [...model.manualCorrelations, correlation] }
 }
@@ -498,7 +539,13 @@ export function updateCoreManualCorrelation(
     model,
     model.boreholes.map(borehole => borehole.id === left.id || borehole.id === right.id ? resetReview(borehole) : borehole),
     activityText,
-    now
+    now,
+    'manual',
+    {
+      category: 'correlation',
+      boreholeIds: uniqueIds([left.id, right.id, previousLeft?.id, previousRight?.id]),
+      layerIds: uniqueIds([leftLayerId, rightLayerId, correlation.leftLayerId, correlation.rightLayerId])
+    }
   )
   return {
     ...next,
@@ -534,7 +581,13 @@ export function removeCoreManualCorrelation(
     model,
     model.boreholes.map(borehole => borehole.id === left?.id || borehole.id === right?.id ? resetReview(borehole) : borehole),
     `Ручная корреляция снята: ${left?.name || correlation.leftLayerId}, подошва ${leftLayer?.ordinal ?? '—'} ↔ ${right?.name || correlation.rightLayerId}, подошва ${rightLayer?.ordinal ?? '—'}`,
-    now
+    now,
+    'manual',
+    {
+      category: 'correlation',
+      boreholeIds: uniqueIds([left?.id, right?.id]),
+      layerIds: [correlation.leftLayerId, correlation.rightLayerId]
+    }
   )
   return { ...next, manualCorrelations: model.manualCorrelations.filter(item => item.id !== correlationId) }
 }
@@ -620,7 +673,13 @@ export function addCoreGapDecision(
     model,
     model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
     `${describeGapDecision(model, decision)}: ${kind === 'accepted' ? 'разрыв принят инженером' : `задано выклинивание на ${(fraction! * 100).toFixed(1).replace('.', ',')}% участка`}. Обоснование: ${normalizedNote}`,
-    now
+    now,
+    'manual',
+    {
+      category: 'gap',
+      boreholeIds: [...affected],
+      layerIds: uniqueIds([leftLayerId, rightLayerId])
+    }
   )
   return { ...next, gapDecisions: [...model.gapDecisions, decision] }
 }
@@ -643,7 +702,13 @@ export function updateCoreGapDecision(
     model,
     model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
     `${describeGapDecision(model, decision)}: решение по разрыву изменено на «${kind === 'accepted' ? 'принять разрыв' : 'выклинивание'}»${kind === 'pinchout' ? `, положение ${(fraction! * 100).toFixed(1).replace('.', ',')}%` : ''}. Обоснование: ${normalizedNote}`,
-    now
+    now,
+    'manual',
+    {
+      category: 'gap',
+      boreholeIds: [...affected],
+      layerIds: uniqueIds([decision.leftLayerId, decision.rightLayerId])
+    }
   )
   return {
     ...next,
@@ -665,7 +730,13 @@ export function removeCoreGapDecision(
     model,
     model.boreholes.map(borehole => affected.has(borehole.id) ? resetReview(borehole) : borehole),
     `${describeGapDecision(model, decision)}: решение по разрыву удалено; разрыв снова открыт или остаётся неактивным при изменившейся корреляции`,
-    now
+    now,
+    'manual',
+    {
+      category: 'gap',
+      boreholeIds: [...affected],
+      layerIds: uniqueIds([decision.leftLayerId, decision.rightLayerId])
+    }
   )
   return { ...next, gapDecisions: model.gapDecisions.filter(item => item.id !== decisionId) }
 }
@@ -779,7 +850,9 @@ export function addCoreFictitiousBorehole(
     model,
     boreholes.map(item => affected.has(item.id) ? resetReview(item) : item),
     `${fictitious.name}: добавлена фиктивная скважина между ${left.name} и ${right.name}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}% · линейная интерполяция ${layers.length} подошв. Обоснование: ${note.trim()}`,
-    now
+    now,
+    'manual',
+    { category: 'fictitious', boreholeIds: [id, leftBoreholeId, rightBoreholeId] }
   )
   return { model: next, boreholeId: id }
 }
@@ -819,7 +892,9 @@ export function updateCoreFictitiousBorehole(
     model,
     model.boreholes.map(item => item.id === boreholeId ? nextBorehole : affected.has(item.id) ? resetReview(item) : item),
     `${borehole.name}: фиктивная скважина явно пересчитана по правилу ${preview.leftName} ↔ ${preview.rightName}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}%. Обоснование: ${note.trim()}`,
-    now
+    now,
+    'manual',
+    { category: 'fictitious', boreholeIds: [boreholeId, rule.leftBoreholeId, rule.rightBoreholeId] }
   )
 }
 
@@ -836,6 +911,8 @@ export function removeCoreFictitiousBorehole(
     model,
     model.boreholes.filter(item => item.id !== boreholeId).map(item => affected.has(item.id) ? resetReview(item) : item),
     `${borehole.name}: фиктивная скважина удалена из расчётной модели; исходные DXF-скважины и геометрия сохранены`,
-    now
+    now,
+    'manual',
+    { category: 'fictitious', boreholeIds: [boreholeId] }
   )
 }

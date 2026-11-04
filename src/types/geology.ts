@@ -99,11 +99,18 @@ export interface GeoCircle {
   handle?: string
 }
 
+export type ActivityCategory = 'system' | 'geology' | 'correlation' | 'gap' | 'fictitious' | 'passport' | 'review'
+
 export interface ActivityItem {
   id: string
   type: 'system' | 'manual'
   text: string
   at: string
+  /** Структурированные связи добавляются новыми командами; старые записи остаются совместимыми. */
+  category?: ActivityCategory
+  boreholeIds?: string[]
+  layerIds?: string[]
+  passportKeys?: string[]
 }
 
 export const SOIL_CHARACTERISTICS = [

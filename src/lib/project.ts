@@ -1,7 +1,7 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, validateCoreModel, type CoreModel } from './geologyCore'
-import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
+import { CORE_ACTIVITY_CATEGORY_LABELS, createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreJournalEntries, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, validateCoreModel, type CoreModel } from './geologyCore'
+import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityCategory, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -28,6 +28,21 @@ function isValidInterpolation(value: unknown): boolean {
   return rule.method === 'linear' && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
     typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string' &&
     (rule.sourceFingerprint === undefined || typeof rule.sourceFingerprint === 'string')
+}
+
+const ACTIVITY_CATEGORIES: ActivityCategory[] = ['system', 'geology', 'correlation', 'gap', 'fictitious', 'passport', 'review']
+
+function isOptionalStringArray(value: unknown): boolean {
+  return value === undefined || Array.isArray(value) && value.every(item => typeof item === 'string')
+}
+
+function isValidActivity(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as Record<string, unknown>
+  return typeof item.id === 'string' && typeof item.text === 'string' && typeof item.at === 'string' &&
+    (item.type === 'system' || item.type === 'manual') &&
+    (item.category === undefined || ACTIVITY_CATEGORIES.includes(item.category as ActivityCategory)) &&
+    isOptionalStringArray(item.boreholeIds) && isOptionalStringArray(item.layerIds) && isOptionalStringArray(item.passportKeys)
 }
 
 function numericCell(value: ExcelJS.CellValue): number | null {
@@ -518,8 +533,32 @@ export async function exportWorkbook(project: GeoProject) {
   coreControl.views = [{ state: 'frozen', ySplit: 1 }]
 
   const journal = workbook.addWorksheet('Журнал')
-  journal.columns = [{ header: 'Тип', width: 18 }, { header: 'Событие', width: 90 }, { header: 'Отметка', width: 24 }]
-  project.activity.forEach(item => journal.addRow([item.type === 'manual' ? 'Ручное решение' : 'Система', item.text, item.at]))
+  journal.columns = [
+    { header: 'Категория', key: 'category', width: 32 },
+    { header: 'Тип', key: 'type', width: 18 },
+    { header: 'Событие', key: 'text', width: 90 },
+    { header: 'Связанные объекты', key: 'objects', width: 70 },
+    { header: 'ID скважин', key: 'boreholeIds', width: 48 },
+    { header: 'ID подошв', key: 'layerIds', width: 58 },
+    { header: 'Ключи ИГЭ', key: 'passportKeys', width: 28 },
+    { header: 'Отметка', key: 'at', width: 24 }
+  ]
+  for (const item of getCoreJournalEntries(coreModel)) {
+    journal.addRow({
+      category: CORE_ACTIVITY_CATEGORY_LABELS[item.category],
+      type: item.type === 'manual' ? 'Ручное решение' : 'Система',
+      text: item.text,
+      objects: item.objectLabel,
+      boreholeIds: item.boreholeIds.join(' / '),
+      layerIds: item.layerIds.join(' / '),
+      passportKeys: item.passportKeys.join(' / '),
+      at: item.at
+    })
+  }
+  journal.getRow(1).font = { bold: true }
+  journal.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  journal.autoFilter = { from: 'A1', to: 'H1' }
+  journal.views = [{ state: 'frozen', ySplit: 1 }]
   const buffer = await workbook.xlsx.writeBuffer()
   downloadBlob(new Blob([buffer as any], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${project.title} — ведомость.xlsx`)
 }
@@ -534,6 +573,9 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
   catch { throw new Error('Файл не является корректным JSON-проектом') }
   if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.columns) || !parsed.geometry || !Array.isArray(parsed.geometry.segments)) {
     throw new Error('Структура проекта не поддерживается этой версией программы')
+  }
+  if (!Array.isArray(parsed.activity) || parsed.activity.some(item => !isValidActivity(item))) {
+    throw new Error('В проекте поврежден журнал инженерных решений')
   }
   if (!parsed.columns.length || parsed.columns.some(column =>
     !column.id || !Array.isArray(column.layers) ||

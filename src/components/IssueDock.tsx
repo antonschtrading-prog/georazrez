@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, Spline } from 'lucide-react'
-import type { ActivityItem, CodeSummaryItem, GapDecision } from '@/types/geology'
-import type { CoreBoundaryItem, CoreBoundaryModel, CoreReviewItem, CoreReviewKind } from '@/lib/geologyCore'
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, MapPin, Search, Spline, X } from 'lucide-react'
+import type { ActivityCategory, CodeSummaryItem, GapDecision } from '@/types/geology'
+import { CORE_ACTIVITY_CATEGORY_LABELS, type CoreBoundaryItem, type CoreBoundaryModel, type CoreJournalEntry, type CoreReviewItem, type CoreReviewKind } from '@/lib/geologyCore'
 
 interface Props {
   issues: CoreReviewItem[]
-  activity: ActivityItem[]
+  activity: CoreJournalEntry[]
   codeSummary: CodeSummaryItem[]
   boundaries: CoreBoundaryModel
   activeIssueId: string | null
@@ -20,6 +20,7 @@ interface Props {
   onDecideGap: (item: CoreBoundaryItem) => void
   onEditInactiveGapDecision: (decision: GapDecision) => void
   onRemoveGapDecision: (decisionId: string) => void
+  onSelectActivity: (item: CoreJournalEntry) => void
   onStep: (direction: -1 | 1) => void
 }
 
@@ -37,11 +38,13 @@ const boundaryStatus = (item: CoreBoundaryItem) => {
   return item.status === 'left-only' ? 'Нет подошвы справа' : 'Нет подошвы слева'
 }
 
-export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onDecideGap, onEditInactiveGapDecision, onRemoveGapDecision, onStep }: Props) {
+export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onDecideGap, onEditInactiveGapDecision, onRemoveGapDecision, onSelectActivity, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | CoreReviewKind>('all')
   const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'open' | 'decided' | 'all' | 'connected' | 'invalid'>('gaps')
+  const [activityQuery, setActivityQuery] = useState('')
+  const [activityCategory, setActivityCategory] = useState<'all' | ActivityCategory>('all')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
   const filteredBoundaries = boundaries.items.filter(item => boundaryFilter === 'all'
     || boundaryFilter === 'gaps' && (item.status === 'left-only' || item.status === 'right-only' || Boolean(item.gapDecisionId))
@@ -50,6 +53,19 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
     || boundaryFilter === 'connected' && item.status === 'connected'
     || boundaryFilter === 'invalid' && item.status === 'invalid')
   const activeIndex = issues.findIndex(issue => issue.id === activeIssueId)
+  const normalizedActivityQuery = activityQuery.trim().toLocaleLowerCase('ru-RU')
+  const filteredActivity = activity.filter(item =>
+    (activityCategory === 'all' || item.category === activityCategory) &&
+    (!normalizedActivityQuery || [
+      item.text,
+      item.at,
+      CORE_ACTIVITY_CATEGORY_LABELS[item.category],
+      item.objectLabel,
+      ...item.boreholeIds,
+      ...item.layerIds,
+      ...item.passportKeys
+    ].join(' ').toLocaleLowerCase('ru-RU').includes(normalizedActivityQuery))
+  )
 
   return (
     <section className={`issue-dock ${collapsed ? 'collapsed' : ''}`} aria-label="Проверка проекта">
@@ -191,11 +207,40 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
           })}
           {!filteredBoundaries.length && <div className="issue-empty">В этой категории границ нет.</div>}
         </div>}
-        {tab === 'activity' && <div className="activity-list">
-          {activity.map(item => <div className="activity-row" key={item.id}>
-            <span className={`activity-marker ${item.type}`} />
-            <div><strong>{item.text}</strong><span>{item.at}</span></div>
-          </div>)}
+        {tab === 'activity' && <div className="journal-panel">
+          <div className="journal-controls">
+            <label className="journal-search" htmlFor="journal-search">
+              <Search size={14} />
+              <input id="journal-search" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Решение, объект, дата или ID" />
+              {activityQuery && <button type="button" onClick={() => setActivityQuery('')} aria-label="Очистить поиск журнала" title="Очистить поиск"><X size={13} /></button>}
+            </label>
+            <label className="journal-category" htmlFor="journal-category">
+              <span className="sr-only">Категория журнала</span>
+              <select id="journal-category" value={activityCategory} onChange={event => setActivityCategory(event.target.value as typeof activityCategory)}>
+                <option value="all">Все категории</option>
+                {(Object.keys(CORE_ACTIVITY_CATEGORY_LABELS) as ActivityCategory[]).map(category => <option value={category} key={category}>{CORE_ACTIVITY_CATEGORY_LABELS[category]}</option>)}
+              </select>
+            </label>
+            <span className="journal-count" aria-live="polite">{filteredActivity.length} / {activity.length}</span>
+          </div>
+          <div className="activity-list" role="list" aria-label="Журнал инженерных решений">
+            {filteredActivity.map(item => {
+              const hasLinkedObjects = Boolean(item.boreholeIds.length || item.layerIds.length || item.passportKeys.length)
+              const canNavigate = Boolean(item.targetBoreholeId)
+              return <article className="activity-row" key={item.id} data-activity-id={item.id} role="listitem">
+                <span className={`activity-marker ${item.type}`} />
+                <div className="activity-copy">
+                  <div className="activity-meta"><span>{CORE_ACTIVITY_CATEGORY_LABELS[item.category]}</span><time>{item.at}</time></div>
+                  <strong>{item.text}</strong>
+                  {item.objectLabel && <span className="activity-objects">{item.objectLabel}</span>}
+                </div>
+                <button type="button" className="activity-location" disabled={!canNavigate} onClick={() => onSelectActivity(item)} aria-label={canNavigate ? `Показать объект решения: ${item.objectLabel || item.text}` : hasLinkedObjects ? 'Связанный объект удалён' : 'Запись без связанного объекта'} title={canNavigate ? 'Перейти к объекту на разрезе' : hasLinkedObjects ? 'Запись сохранена, но связанный объект удалён' : 'Для этой записи нет объекта на разрезе'}>
+                  <MapPin size={13} /> <span>{canNavigate ? 'Показать' : hasLinkedObjects ? 'Объект удалён' : 'Без привязки'}</span>
+                </button>
+              </article>
+            })}
+            {!filteredActivity.length && <div className="issue-empty">{activity.length ? 'По этому запросу и фильтру записей нет.' : 'Журнал пока пуст. Инженерные решения появятся здесь после команд.'}</div>}
+          </div>
         </div>}
       </div>}
     </section>

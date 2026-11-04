@@ -1,6 +1,7 @@
 import {
   getCharacteristicCoverage,
   getIgeKey,
+  type ActivityCategory,
   type ActivityItem,
   type Borehole,
   type BoreholeKind,
@@ -1070,6 +1071,76 @@ export function getCoreSectionReport(
     decidedGaps: boundaries.decidedGaps,
     consistent: items.length === 0
   }
+}
+
+export const CORE_ACTIVITY_CATEGORY_LABELS: Record<ActivityCategory, string> = {
+  system: 'Система и история',
+  geology: 'Скважины и слои',
+  correlation: 'Ручная корреляция',
+  gap: 'Разрывы и выклинивания',
+  fictitious: 'Фиктивные скважины',
+  passport: 'Паспорта и характеристики ИГЭ',
+  review: 'Проверка и исключение'
+}
+
+export interface CoreJournalEntry extends ActivityItem {
+  category: ActivityCategory
+  boreholeIds: string[]
+  layerIds: string[]
+  passportKeys: string[]
+  objectLabel: string
+  targetBoreholeId: string | null
+  targetLayerId: string | null
+}
+
+/** Старые сообщения классифицируются только для отображения; исходный текст не переписывается. */
+function getLegacyActivityCategory(item: ActivityItem): ActivityCategory {
+  if (item.type === 'system' || /Отменено|Повторено/.test(item.text)) return 'system'
+  if (/фиктивн|интерполяц/i.test(item.text)) return 'fictitious'
+  if (/разрыв|выклинив/i.test(item.text)) return 'gap'
+  if (/корреляц/i.test(item.text)) return 'correlation'
+  if (/паспорт|характеристик/i.test(item.text)) return 'passport'
+  if (/проверк|исключен|возвращена в расчёт/i.test(item.text)) return 'review'
+  return 'geology'
+}
+
+/**
+ * Журнал остаётся сохранённой историей команд. Связи с текущими объектами лишь
+ * разрешаются для навигации; удалённый объект не приводит к удалению записи.
+ */
+export function getCoreJournalEntries(model: CoreModel): CoreJournalEntry[] {
+  const layerOwners = new Map<string, CoreBorehole>()
+  const layerById = new Map<string, CoreLayer>()
+  for (const column of model.boreholes) for (const layer of column.layers) {
+    layerOwners.set(layer.id, column)
+    layerById.set(layer.id, layer)
+  }
+  return model.project.activity.map(item => {
+    const layerIds = [...new Set(item.layerIds || [])]
+    const boreholeIds = [...new Set([
+      ...(item.boreholeIds || []),
+      ...layerIds.map(id => layerOwners.get(id)?.id).filter((id): id is string => Boolean(id))
+    ])]
+    const existingLayerId = layerIds.find(id => layerById.has(id)) || null
+    const targetBoreholeId = existingLayerId ? layerOwners.get(existingLayerId)!.id
+      : boreholeIds.find(id => model.boreholes.some(column => column.id === id)) || null
+    const objectParts = boreholeIds.map(id => model.boreholes.find(column => column.id === id)?.name || id)
+    const layerParts = layerIds.map(id => {
+      const layer = layerById.get(id)
+      return layer ? `подошва ${layer.ordinal}` : id
+    })
+    const passportParts = (item.passportKeys || []).map(key => `ИГЭ ${key}`)
+    return {
+      ...item,
+      category: item.category || getLegacyActivityCategory(item),
+      boreholeIds,
+      layerIds,
+      passportKeys: [...new Set(item.passportKeys || [])],
+      objectLabel: [...objectParts, ...layerParts, ...passportParts].join(' · '),
+      targetBoreholeId,
+      targetLayerId: existingLayerId
+    }
+  })
 }
 
 /** Соседи выбираются только среди активных колонок; совпадения не ранжируются по глубине. */
