@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, PanelRight, Redo2, Save, Tags, Undo2 } from 'lucide-react'
+import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, PanelRight, Plus, Redo2, Save, Tags, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoreholeList } from '@/components/BoreholeList'
 import { Inspector } from '@/components/Inspector'
@@ -10,8 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreReviewItems, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
-import { addCoreActivity, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreGapDecision, updateCoreManualCorrelation } from '@/lib/coreCommands'
+import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreReviewItems, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
+import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -45,6 +45,14 @@ export default function App() {
   const [gapKind, setGapKind] = useState<GapDecisionKind>('accepted')
   const [gapFraction, setGapFraction] = useState('50')
   const [gapNote, setGapNote] = useState('')
+  const [fictitiousOpen, setFictitiousOpen] = useState(false)
+  const [fictitiousPickMode, setFictitiousPickMode] = useState(false)
+  const [editingFictitiousId, setEditingFictitiousId] = useState<string | null>(null)
+  const [fictitiousLeft, setFictitiousLeft] = useState('')
+  const [fictitiousRight, setFictitiousRight] = useState('')
+  const [fictitiousFraction, setFictitiousFraction] = useState('50')
+  const [fictitiousName, setFictitiousName] = useState('')
+  const [fictitiousNote, setFictitiousNote] = useState('')
 
   useEffect(() => {
     let active = true
@@ -134,6 +142,33 @@ export default function App() {
   const gapUnchanged = Boolean(editingGapDecision && editingGapDecision.kind === gapKind &&
     editingGapDecision.fraction === (gapKind === 'pinchout' ? parsedGapFraction : null) &&
     editingGapDecision.note === gapNote.trim())
+  const editingFictitious = coreModel?.boreholes.find(item => item.id === editingFictitiousId && item.kind === 'fictitious') || null
+  const parsedFictitiousFraction = Number(fictitiousFraction.replace(',', '.')) / 100
+  const fictitiousPreview = useMemo(() => {
+    if (!coreModel || !fictitiousLeft || !fictitiousRight) return { data: null, error: '' }
+    try {
+      return { data: getCoreFictitiousPreview(coreModel, fictitiousLeft, fictitiousRight, parsedFictitiousFraction), error: '' }
+    } catch (reason) {
+      return { data: null, error: reason instanceof Error ? reason.message : 'Не удалось построить предварительный расчёт' }
+    }
+  }, [coreModel, fictitiousLeft, fictitiousRight, parsedFictitiousFraction])
+  const fictitiousUnchanged = Boolean(editingFictitious?.interpolation && fictitiousPreview.data &&
+    editingFictitious.interpolation.fraction === parsedFictitiousFraction &&
+    editingFictitious.interpolation.note === fictitiousNote.trim() &&
+    editingFictitious.drawing.x === fictitiousPreview.data.x &&
+    editingFictitious.drawing.top === fictitiousPreview.data.top &&
+    editingFictitious.drawing.bottom === fictitiousPreview.data.bottom &&
+    editingFictitious.layers.length === fictitiousPreview.data.layers.length &&
+    editingFictitious.layers.every((layer, index) => {
+      const previewLayer = fictitiousPreview.data!.layers[index]
+      const expectedStatus = previewLayer.codeAgreed ? 'interpolated' : previewLayer.leftCode && previewLayer.rightCode ? 'ambiguous' : 'not-found'
+      return layer.bottomDepth === previewLayer.depth && layer.igeCode === previewLayer.code &&
+        layer.codeStatus === expectedStatus && layer.depthSource === 'interpolated'
+    }))
+  const fictitiousSources = selectedCore?.kind === 'fictitious' && selectedCore.interpolation && coreModel ? {
+    left: coreModel.boreholes.find(item => item.id === selectedCore.interpolation?.leftBoreholeId)?.name || selectedCore.interpolation.leftBoreholeId,
+    right: coreModel.boreholes.find(item => item.id === selectedCore.interpolation?.rightBoreholeId)?.name || selectedCore.interpolation.rightBoreholeId
+  } : null
 
   const commitCore = (updater: (current: CoreModel) => CoreModel): boolean => {
     if (!coreModel) return false
@@ -310,6 +345,99 @@ export default function App() {
     }
   }
 
+  const closeFictitious = () => {
+    setFictitiousOpen(false)
+    setEditingFictitiousId(null)
+  }
+
+  const startFictitiousPick = () => {
+    setFictitiousPickMode(true)
+    toast('Укажите на разрезе место между двумя исходными DXF-скважинами')
+  }
+
+  const openFictitiousCreate = (leftId: string, rightId: string, fraction: number) => {
+    if (!coreModel) return
+    const left = coreModel.boreholes.find(item => item.id === leftId)
+    const right = coreModel.boreholes.find(item => item.id === rightId)
+    if (!left || !right) return
+    setEditingFictitiousId(null)
+    setFictitiousLeft(leftId)
+    setFictitiousRight(rightId)
+    setFictitiousFraction(String(Math.round(fraction * 10000) / 100))
+    setFictitiousName(`Фиктивная ${left.name} — ${right.name}`)
+    setFictitiousNote('')
+    setFictitiousOpen(true)
+  }
+
+  const pickFictitiousPosition = (x: number) => {
+    if (!coreModel) return
+    const sources = coreModel.boreholes.filter(item => item.kind === 'dxf')
+    for (let index = 0; index < sources.length - 1; index += 1) {
+      const left = sources[index]
+      const right = sources[index + 1]
+      const fraction = (x - left.drawing.x) / (right.drawing.x - left.drawing.x)
+      if (fraction > 0 && fraction < 1) {
+        if (!left.included || !right.included) {
+          toast.error('Между исключёнными исходными скважинами фиктивная не создаётся')
+          return
+        }
+        setFictitiousPickMode(false)
+        openFictitiousCreate(left.id, right.id, fraction)
+        return
+      }
+    }
+    toast.error('Укажите точку строго между двумя соседними исходными скважинами')
+  }
+
+  const openFictitiousEdit = (id: string, fraction?: number) => {
+    const column = coreModel?.boreholes.find(item => item.id === id && item.kind === 'fictitious')
+    if (!column?.interpolation) return
+    setFictitiousPickMode(false)
+    setEditingFictitiousId(id)
+    setFictitiousLeft(column.interpolation.leftBoreholeId)
+    setFictitiousRight(column.interpolation.rightBoreholeId)
+    setFictitiousFraction(String(Math.round((fraction ?? column.interpolation.fraction) * 10000) / 100))
+    setFictitiousName(column.name)
+    setFictitiousNote(column.interpolation.note)
+    setFictitiousOpen(true)
+  }
+
+  const submitFictitious = () => {
+    if (!fictitiousPreview.data || !fictitiousName.trim() || !fictitiousNote.trim()) return
+    if (editingFictitiousId && fictitiousUnchanged) {
+      closeFictitious()
+      toast('Пересчёт не потребовался: сохранённые глубины и положение уже соответствуют правилу')
+      return
+    }
+    let selectedId = editingFictitiousId
+    const changed = commitCore(current => {
+      if (editingFictitiousId) return updateCoreFictitiousBorehole(current, editingFictitiousId, parsedFictitiousFraction, fictitiousNote)
+      const result = addCoreFictitiousBorehole(current, fictitiousLeft, fictitiousRight, parsedFictitiousFraction, fictitiousName, fictitiousNote)
+      selectedId = result.boreholeId
+      return result.model
+    })
+    if (changed) {
+      if (selectedId) {
+        setSelectedId(selectedId)
+        setSelectedLayerId(null)
+        setFocusToken(value => value + 1)
+      }
+      closeFictitious()
+      toast.success(editingFictitiousId ? 'Фиктивная скважина пересчитана по явной команде' : 'Фиктивная скважина добавлена')
+    }
+  }
+
+  const deleteFictitious = () => {
+    if (!selectedCore || selectedCore.kind !== 'fictitious' || !coreModel) return
+    const index = coreModel.boreholes.findIndex(item => item.id === selectedCore.id)
+    const nextId = coreModel.boreholes[index + 1]?.id || coreModel.boreholes[index - 1]?.id || ''
+    if (commitCore(current => removeCoreFictitiousBorehole(current, selectedCore.id))) {
+      setSelectedId(nextId)
+      setSelectedLayerId(null)
+      toast.success('Фиктивная скважина удалена; действие можно отменить')
+    }
+  }
+
   const stepIssue = (direction: -1 | 1) => {
     if (!reviewItems.length) return
     const selectedIndex = reviewItems.findIndex(issue => issue.id === activeIssueId)
@@ -470,27 +598,28 @@ export default function App() {
             <div className="viewer-actions">
               <button type="button" className={showLabels ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowLabels(value => !value)} aria-pressed={showLabels}><Tags size={15} /> Подписи</button>
               <button type="button" className={showCodes ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowCodes(value => !value)} aria-pressed={showCodes}><Layers3 size={15} /> ИГЭ</button>
+              <button type="button" className={fictitiousPickMode ? 'toggle-button active' : 'toggle-button'} onClick={fictitiousPickMode ? () => setFictitiousPickMode(false) : startFictitiousPick} aria-pressed={fictitiousPickMode}><Plus size={15} /> {fictitiousPickMode ? 'Отменить выбор' : 'Фиктивная'}</button>
               <button type="button" className="toggle-button" onClick={() => setFitToken(value => value + 1)}><MapPin size={15} /> Обзор</button>
             </div>
           </div>
           <div className="project-metrics">
-            <div><strong>{activeColumns.length}</strong><span>в расчёте · {project.columns.length} в DXF</span></div>
+            <div><strong>{activeColumns.length}</strong><span>в расчёте · {coreReport?.stats.sourceBoreholes || 0} DXF · {coreReport?.stats.fictitious || 0} фиктивных</span></div>
             <div><strong>{layerCount}</strong><span>подошв слоёв</span></div>
             <div className="metric-warning"><strong>{issues.filter(i => i.kind === 'ambiguous-code').length}</strong><span>неоднозначных ИГЭ</span></div>
             <div><strong>{reviewedCount}</strong><span>проверено · {project.columns.filter(c => c.sourceNamed).length} имён DXF</span></div>
-            <span className="real-data-badge">Реальные исходники</span>
+            <span className="real-data-badge">Исходный DXF сохранён</span>
           </div>
-          <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
+          <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} fictitiousPickMode={fictitiousPickMode} onFictitiousPosition={pickFictitiousPosition} onFictitiousMove={openFictitiousEdit} />
           <IssueDock issues={reviewItems} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onDecideGap={openGapDecision} onEditInactiveGapDecision={openInactiveGapDecision} onRemoveGapDecision={removeGapDecision} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} fictitiousSources={fictitiousSources} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} onEditFictitious={() => openFictitiousEdit(selectedCore.id)} onDeleteFictitious={deleteFictitious} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.35 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.35</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.36 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.36</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -573,6 +702,65 @@ export default function App() {
             <div className="import-actions">
               <button type="button" className="button secondary" onClick={closeGapDecision}>Отмена</button>
               <button type="submit" className="button primary" disabled={!gapNote.trim() || gapKind === 'pinchout' && !gapFractionValid || gapUnchanged}>{editingGapDecision ? 'Сохранить изменения' : 'Сохранить решение'}</button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={fictitiousOpen} onOpenChange={open => { if (!open) closeFictitious() }}>
+        <DialogContent className="exclude-dialog fictitious-dialog">
+          <DialogHeader>
+            <DialogTitle>{editingFictitious ? 'Пересчёт фиктивной скважины' : 'Новая фиктивная скважина'}</DialogTitle>
+            <DialogDescription>Проверьте будущие глубины и коды до сохранения. Линейная интерполяция выполняется только по этой явной команде; исходные скважины и DXF не изменяются.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={event => { event.preventDefault(); submitFictitious() }}>
+            <div className="fictitious-endpoints">
+              <div>
+                <label className="field-label" htmlFor="fictitious-left">Исходная скважина слева</label>
+                <select id="fictitious-left" className="name-input" value={fictitiousLeft} onChange={event => setFictitiousLeft(event.target.value)} disabled={Boolean(editingFictitious)} required>
+                  {coreModel.boreholes.filter(item => item.kind === 'dxf').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label" htmlFor="fictitious-right">Исходная скважина справа</label>
+                <select id="fictitious-right" className="name-input" value={fictitiousRight} onChange={event => setFictitiousRight(event.target.value)} disabled={Boolean(editingFictitious)} required>
+                  {coreModel.boreholes.filter(item => item.kind === 'dxf').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="fictitious-endpoints secondary-fields">
+              <div>
+                <label className="field-label" htmlFor="fictitious-fraction">Положение от левой скважины, %</label>
+                <input id="fictitious-fraction" className="name-input" type="number" min="0.01" max="99.99" step="0.01" value={fictitiousFraction} onChange={event => setFictitiousFraction(event.target.value)} required />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="fictitious-name">Наименование</label>
+                <input id="fictitious-name" className="name-input" value={fictitiousName} onChange={event => setFictitiousName(event.target.value)} disabled={Boolean(editingFictitious)} required />
+              </div>
+            </div>
+            {fictitiousPreview.error && <div className="import-error" role="alert">{fictitiousPreview.error}</div>}
+            {fictitiousPreview.data && <div className="fictitious-preview" data-fictitious-preview>
+              <div className="fictitious-preview-summary">
+                <span>ПК <strong>{fictitiousPreview.data.pk.toFixed(2).replace('.', ',')}</strong></span>
+                <span>Подошв <strong>{fictitiousPreview.data.layers.length}</strong></span>
+                <span>Совпадающих ИГЭ <strong>{fictitiousPreview.data.layers.filter(item => item.codeAgreed).length}</strong></span>
+              </div>
+              {!fictitiousPreview.data.coordinates && <p className="import-error">ПК находится вне диапазона оси: координаты X и Y не экстраполируются.</p>}
+              <div className="fictitious-preview-table" role="table" aria-label="Предварительный расчёт слоёв">
+                <div className="fictitious-preview-head" role="row"><span>№</span><span>{fictitiousPreview.data.leftName}</span><span>Расчёт</span><span>{fictitiousPreview.data.rightName}</span></div>
+                {fictitiousPreview.data.layers.map(layer => <div className={layer.codeAgreed ? '' : 'needs-code-review'} role="row" key={layer.ordinal} data-preview-layer={layer.ordinal}>
+                  <span>{layer.ordinal}</span>
+                  <span>{layer.leftDepth.toFixed(2).replace('.', ',')} м<small>{layer.leftCode || 'ИГЭ —'}</small></span>
+                  <span><strong>{layer.depth.toFixed(3).replace('.', ',')} м</strong><small>{layer.codeAgreed ? layer.code : 'ИГЭ требует ручного выбора'}</small></span>
+                  <span>{layer.rightDepth.toFixed(2).replace('.', ',')} м<small>{layer.rightCode || 'ИГЭ —'}</small></span>
+                </div>)}
+              </div>
+              {fictitiousPreview.data.layers.some(layer => !layer.codeAgreed) && <p>Разные или отсутствующие коды не выбираются автоматически. Такие слои после сохранения попадут в очередь проверки.</p>}
+            </div>}
+            <label className="field-label correlation-note-label" htmlFor="fictitious-note">Инженерное обоснование</label>
+            <textarea id="fictitious-note" className="reason-input" value={fictitiousNote} onChange={event => setFictitiousNote(event.target.value)} placeholder="Укажите основание для добавления расчётной скважины и применения линейной интерполяции" required />
+            <div className="import-actions">
+              <button type="button" className="button secondary" onClick={closeFictitious}>Отмена</button>
+              <button type="submit" className="button primary" disabled={!fictitiousPreview.data || !fictitiousName.trim() || !fictitiousNote.trim()}>{editingFictitious ? 'Подтвердить пересчёт' : 'Добавить фиктивную'}</button>
             </div>
           </form>
         </DialogContent>

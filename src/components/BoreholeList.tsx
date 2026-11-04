@@ -64,14 +64,14 @@ export function BoreholeList({ project, issues, boundaries, selectedId, onSelect
               type="button"
               role="listitem"
               key={column.id}
-              className={`borehole-item ${selectedId === column.id ? 'selected' : ''} ${column.isExcluded ? 'excluded' : ''} ${column.isReviewed ? 'reviewed' : ''}`}
+              className={`borehole-item ${selectedId === column.id ? 'selected' : ''} ${column.isExcluded ? 'excluded' : ''} ${column.isReviewed ? 'reviewed' : ''} ${column.kind === 'fictitious' ? 'fictitious' : ''}`}
               onClick={() => onSelect(column.id)}
               title={boundaryCount ? `${column.name}: некорректных границ корреляции — ${boundaryCount}` : undefined}
             >
               <span className={`borehole-status ${column.isExcluded ? 'excluded' : column.isReviewed ? 'reviewed' : count ? 'has-issues' : 'clear'}`} aria-hidden="true" />
               <span className="borehole-copy">
-                <strong>{column.name}</strong>
-                <span>ПК {formatPk(column.pk)} · {column.layers.length} слоёв{boundaryCount ? ` · ошибок границ: ${boundaryCount}` : ''}</span>
+                <strong>{column.kind === 'fictitious' ? 'Ф · ' : ''}{column.name}</strong>
+                <span>ПК {formatPk(column.pk)} · {column.layers.length} слоёв{column.kind === 'fictitious' ? ' · интерполяция' : ''}{boundaryCount ? ` · ошибок границ: ${boundaryCount}` : ''}</span>
               </span>
               <span className="borehole-index">{String(column.index).padStart(2, '0')}</span>
             </button>

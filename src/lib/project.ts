@@ -8,11 +8,25 @@ const exportStatus: Record<CodeStatus, string> = {
   'vertical-only': 'По положению кружка',
   ambiguous: 'Требует ручного выбора',
   'not-found': 'ИГЭ не найден',
-  manual: 'Подтверждено вручную'
+  manual: 'Подтверждено вручную',
+  interpolated: 'Линейная интерполяция'
 }
+
+const exportDepthSource = {
+  dxf: 'Исходный DXF',
+  manual: 'Изменена или добавлена вручную',
+  interpolated: 'Линейная интерполяция по сохранённому правилу'
+} as const
 
 function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || typeof value === 'number' && Number.isFinite(value)
+}
+
+function isValidInterpolation(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const rule = value as Record<string, unknown>
+  return rule.method === 'linear' && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
+    typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string'
 }
 
 function numericCell(value: ExcelJS.CellValue): number | null {
@@ -99,7 +113,7 @@ export async function exportWorkbook(project: GeoProject) {
       const row = sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth,
         thickness: getCoreLayerThickness(coreColumn.layers, layerIndex),
-        depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
+        depthSource: exportDepthSource[layer.depthSource || 'dxf'],
         depthControl: depthIssue === 'invalid-depth' ? 'Некорректная глубина' : depthIssue === 'depth-order' ? 'Порядок подошв нарушен' : 'ОК',
         ige: layer.ige, igeName: passport?.name || '', igeDescription: passport?.description || '',
         x: column.coordX ?? '', y: column.coordY ?? '', status: exportStatus[layer.status], source: layer.source
@@ -135,7 +149,7 @@ export async function exportWorkbook(project: GeoProject) {
         ordinal: layer.ordinal,
         depth: layer.bottomDepth,
         code: layer.igeCode,
-        depthSource: layer.depthSource === 'manual' ? 'Ручное значение' : 'Исходный DXF',
+        depthSource: exportDepthSource[layer.depthSource],
         codeStatus: exportStatus[layer.codeStatus],
         sideLines: column.sourceRefs.sideLines.join(' / '),
         nameText: column.sourceRefs.nameText,
@@ -173,6 +187,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ID решения по разрыву', key: 'gapDecisionId', width: 42 }
   ]
   const boundaryModel = getCoreBoundaryModel(coreModel)
+  const interpolatedLayerIds = new Set(coreModel.boreholes.flatMap(column => column.layers.filter(layer => layer.depthSource === 'interpolated').map(layer => layer.id)))
   for (const item of boundaryModel.items) {
     const row = boundarySheet.addRow({
       leftName: item.leftBoreholeName,
@@ -191,7 +206,7 @@ export async function exportWorkbook(project: GeoProject) {
             : item.issues.some(issue => issue.kind === 'crossing') ? 'Пересечение границ' : 'Некорректная граница',
       basis: item.manualCorrelation ? 'Ручная корреляция' : item.gapDecisionKind === 'accepted' ? 'Разрыв принят инженером' : item.gapDecisionKind === 'pinchout' ? 'Явное выклинивание' : 'Одинаковый порядковый номер',
       note: item.correlationNote,
-      source: item.manual ? 'Есть ручная глубина' : 'Исходный DXF',
+      source: item.manual ? 'Есть ручная глубина' : [item.leftLayerId, item.rightLayerId].some(id => id && interpolatedLayerIds.has(id)) ? 'Есть интерполированная глубина' : 'Исходный DXF',
       issues: item.issues.map(issue => issue.detail).join('; '),
       gapDecision: item.gapDecisionKind === 'accepted' ? 'Разрыв принят' : item.gapDecisionKind === 'pinchout' ? 'Выклинивание' : '',
       pinchoutFraction: item.pinchoutFraction === null ? null : item.pinchoutFraction * 100,
@@ -252,6 +267,55 @@ export async function exportWorkbook(project: GeoProject) {
   gapDecisionSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
   gapDecisionSheet.autoFilter = { from: 'A1', to: 'N1' }
   gapDecisionSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const fictitiousSheet = workbook.addWorksheet('Фиктивные скважины')
+  fictitiousSheet.columns = [
+    { header: 'ID скважины', key: 'id', width: 48 },
+    { header: 'Наименование', key: 'name', width: 32 },
+    { header: 'ПК', key: 'pk', width: 16 },
+    { header: 'Метод', key: 'method', width: 24 },
+    { header: 'Источник слева', key: 'left', width: 28 },
+    { header: 'Источник справа', key: 'right', width: 28 },
+    { header: 'Положение, %', key: 'fraction', width: 18 },
+    { header: 'Инженерное обоснование', key: 'note', width: 60 },
+    { header: 'Правило создано', key: 'createdAt', width: 26 },
+    { header: 'Подошва №', key: 'ordinal', width: 14 },
+    { header: 'Глубина, м', key: 'depth', width: 18 },
+    { header: 'ИГЭ', key: 'code', width: 16 },
+    { header: 'Статус ИГЭ', key: 'status', width: 28 },
+    { header: 'X', key: 'x', width: 18 },
+    { header: 'Y', key: 'y', width: 18 }
+  ]
+  for (const column of coreModel.boreholes.filter(item => item.kind === 'fictitious')) {
+    const rule = column.interpolation
+    const left = coreModel.boreholes.find(item => item.id === rule?.leftBoreholeId)
+    const right = coreModel.boreholes.find(item => item.id === rule?.rightBoreholeId)
+    for (const layer of column.layers) {
+      const row = fictitiousSheet.addRow({
+        id: column.id,
+        name: column.name,
+        pk: formatPk(column.pk),
+        method: rule?.method === 'linear' ? 'Линейная, явная команда' : 'Правило отсутствует',
+        left: left?.name || rule?.leftBoreholeId || '',
+        right: right?.name || rule?.rightBoreholeId || '',
+        fraction: rule ? rule.fraction * 100 : null,
+        note: rule?.note || '',
+        createdAt: rule?.createdAt || '',
+        ordinal: layer.ordinal,
+        depth: layer.bottomDepth,
+        code: layer.igeCode,
+        status: exportStatus[layer.codeStatus],
+        x: column.coordinates?.x ?? null,
+        y: column.coordinates?.y ?? null
+      })
+      row.getCell(7).numFmt = '0.00'
+      row.getCell(11).numFmt = '0.00'
+    }
+  }
+  fictitiousSheet.getRow(1).font = { bold: true }
+  fictitiousSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  fictitiousSheet.autoFilter = { from: 'A1', to: 'O1' }
+  fictitiousSheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
   codeSummary.columns = [
@@ -358,7 +422,7 @@ export async function exportWorkbook(project: GeoProject) {
       issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (column.sourceNamed ? 0 : 1) + boundaryIssueCount,
       depthIssues: column.isExcluded ? 0 : depthIssueCount,
       boundaryIssues: boundaryIssueCount,
-      named: column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
+      named: column.kind === 'fictitious' ? 'Фиктивная · сохранённое правило' : column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
       included: column.isExcluded ? 'Нет' : 'Да',
       reviewed: column.isReviewed && !column.isExcluded ? 'Да' : 'Нет',
       reviewedAt: column.reviewedAt || '',
@@ -459,7 +523,11 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
     throw new Error('Структура проекта не поддерживается этой версией программы')
   }
   if (!parsed.columns.length || parsed.columns.some(column =>
-    !column.id || !Array.isArray(column.layers) || column.layers.some(layer =>
+    !column.id || !Array.isArray(column.layers) ||
+    (column.kind !== undefined && !['dxf', 'fictitious'].includes(column.kind)) ||
+    (column.kind === 'fictitious' && !isValidInterpolation(column.interpolation)) ||
+    (column.interpolation !== undefined && column.interpolation !== null && !isValidInterpolation(column.interpolation)) ||
+    column.layers.some(layer =>
       !layer || typeof layer.id !== 'string' || typeof layer.depth !== 'number'
     )
   )) {

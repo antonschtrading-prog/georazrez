@@ -2,7 +2,9 @@ import {
   getCoreBoreholeBoundaryIssues,
   getCoreBoundaryModel,
   getCoreIssues,
+  getCoreFictitiousPreview,
   type CoreBorehole,
+  type CoreFictitiousPreview,
   type CoreLayer,
   type CoreModel
 } from './geologyCore'
@@ -69,6 +71,7 @@ export function renameCoreBorehole(
 ): CoreModel {
   const borehole = requireBorehole(model, boreholeId)
   if (!borehole.included) throw new Error('Исключённая колонка не редактируется')
+  if (borehole.kind === 'fictitious' && !name.trim()) throw new Error('Фиктивная скважина должна иметь непустое наименование')
   if (name === borehole.name) return model
   const next = resetReview({ ...borehole, name, sourceNamed: name.trim().length > 0 })
   return withActivity(
@@ -660,4 +663,172 @@ export function removeCoreGapDecision(
     now
   )
   return { ...next, gapDecisions: model.gapDecisions.filter(item => item.id !== decisionId) }
+}
+
+function assertNoFictitiousLinks(model: CoreModel, borehole: CoreBorehole) {
+  const layerIds = new Set(borehole.layers.map(layer => layer.id))
+  if (model.manualCorrelations.some(item => layerIds.has(item.leftLayerId) || layerIds.has(item.rightLayerId)) ||
+      model.gapDecisions.some(item => (item.leftLayerId && layerIds.has(item.leftLayerId)) || (item.rightLayerId && layerIds.has(item.rightLayerId)))) {
+    throw new Error('Сначала снимите ручные корреляции и решения по разрывам, связанные с фиктивной скважиной')
+  }
+}
+
+function interpolatedLayers(model: CoreModel, boreholeId: string, preview: CoreFictitiousPreview): CoreLayer[] {
+  const left = requireBorehole(model, preview.leftBoreholeId)
+  const right = requireBorehole(model, preview.rightBoreholeId)
+  return preview.layers.map(item => {
+    const leftLayer = left.layers[item.ordinal - 1]
+    const rightLayer = right.layers[item.ordinal - 1]
+    const bothCodes = Boolean(item.leftCode && item.rightCode)
+    const candidates = item.codeAgreed ? [] : [
+      item.leftCode ? {
+        code: item.leftCode,
+        x: left.drawing.x,
+        y: leftLayer.drawingY,
+        reason: `Код левой исходной скважины ${left.name}`
+      } : null,
+      item.rightCode ? {
+        code: item.rightCode,
+        x: right.drawing.x,
+        y: rightLayer.drawingY,
+        reason: `Код правой исходной скважины ${right.name}`
+      } : null
+    ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    return {
+      id: `${boreholeId}-layer-${item.ordinal}`,
+      boreholeId,
+      ordinal: item.ordinal,
+      bottomDepth: item.depth,
+      drawingY: preview.top - item.depth * (1000 / model.project.verticalScale),
+      igeCode: item.code,
+      igeKey: item.code ? getIgeKey(item.code) : null,
+      codeStatus: item.codeAgreed ? 'interpolated' : bothCodes ? 'ambiguous' : 'not-found',
+      candidates,
+      codeSource: item.codeAgreed
+        ? `Линейная интерполяция ${left.name} ↔ ${right.name}: нормализованные коды совпадают`
+        : `Линейная интерполяция ${left.name} ↔ ${right.name}: коды различаются или отсутствуют, требуется ручной выбор`,
+      depthSource: 'interpolated',
+      sourceRefs: { depthText: '', codeTexts: [] }
+    }
+  })
+}
+
+export interface CoreFictitiousInsertion {
+  model: CoreModel
+  boreholeId: string
+}
+
+/** Создание возможно только после того же явного preview, который использует диалог. */
+export function addCoreFictitiousBorehole(
+  model: CoreModel,
+  leftBoreholeId: string,
+  rightBoreholeId: string,
+  fraction: number,
+  name: string,
+  note: string,
+  now = new Date()
+): CoreFictitiousInsertion {
+  if (!name.trim()) throw new Error('Укажите наименование фиктивной скважины')
+  if (!note.trim()) throw new Error('Укажите инженерное обоснование интерполяции')
+  if (model.boreholes.some(item => item.kind === 'fictitious' &&
+    item.interpolation?.leftBoreholeId === leftBoreholeId && item.interpolation.rightBoreholeId === rightBoreholeId)) {
+    throw new Error('Для этой пары исходных скважин уже существует фиктивная скважина')
+  }
+  const preview = getCoreFictitiousPreview(model, leftBoreholeId, rightBoreholeId, fraction)
+  const id = `fictitious-${leftBoreholeId}-${rightBoreholeId}-${now.getTime()}`
+  if (model.boreholes.some(item => item.id === id)) throw new Error('Не удалось создать уникальный идентификатор фиктивной скважины')
+  const leftIndex = model.boreholes.findIndex(item => item.id === leftBoreholeId)
+  const rightIndex = model.boreholes.findIndex(item => item.id === rightBoreholeId)
+  const left = model.boreholes[leftIndex]
+  const right = model.boreholes[rightIndex]
+  const layers = interpolatedLayers(model, id, preview)
+  const fictitious: CoreBorehole = {
+    id,
+    index: left.index + (right.index - left.index) * fraction,
+    name: name.trim(),
+    sourceNamed: true,
+    kind: 'fictitious',
+    interpolation: {
+      method: 'linear',
+      leftBoreholeId,
+      rightBoreholeId,
+      fraction,
+      note: note.trim(),
+      createdAt: now.toISOString()
+    },
+    sourceRefs: { sideLines: [], nameText: '' },
+    drawing: { x: preview.x, top: preview.top, bottom: preview.bottom, levels: layers.map(layer => layer.drawingY) },
+    pk: preview.pk,
+    coordinates: preview.coordinates ? { ...preview.coordinates } : null,
+    included: true,
+    exclusionReason: '',
+    review: { reviewed: false, reviewedAt: '' },
+    layers,
+    excludedLabels: []
+  }
+  const boreholes = [...model.boreholes]
+  boreholes.splice(rightIndex, 0, fictitious)
+  const affected = new Set([leftBoreholeId, rightBoreholeId])
+  const next = withActivity(
+    model,
+    boreholes.map(item => affected.has(item.id) ? resetReview(item) : item),
+    `${fictitious.name}: добавлена фиктивная скважина между ${left.name} и ${right.name}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}% · линейная интерполяция ${layers.length} подошв. Обоснование: ${note.trim()}`,
+    now
+  )
+  return { model: next, boreholeId: id }
+}
+
+/** Явно пересчитывает сохранённую скважину; фонового обновления после правки источников нет. */
+export function updateCoreFictitiousBorehole(
+  model: CoreModel,
+  boreholeId: string,
+  fraction: number,
+  note: string,
+  now = new Date()
+): CoreModel {
+  const borehole = requireBorehole(model, boreholeId)
+  if (borehole.kind !== 'fictitious' || !borehole.interpolation) throw new Error('Эта команда доступна только для фиктивной скважины')
+  if (!note.trim()) throw new Error('Укажите инженерное обоснование интерполяции')
+  assertNoFictitiousLinks(model, borehole)
+  const rule = borehole.interpolation
+  const preview = getCoreFictitiousPreview(model, rule.leftBoreholeId, rule.rightBoreholeId, fraction)
+  const layers = interpolatedLayers(model, boreholeId, preview)
+  const unchanged = rule.fraction === fraction && rule.note === note.trim() &&
+    borehole.drawing.x === preview.x && borehole.drawing.top === preview.top && borehole.drawing.bottom === preview.bottom &&
+    borehole.layers.length === layers.length && borehole.layers.every((layer, index) =>
+      layer.bottomDepth === layers[index].bottomDepth && layer.igeCode === layers[index].igeCode &&
+      layer.codeStatus === layers[index].codeStatus && layer.depthSource === layers[index].depthSource)
+  if (unchanged) return model
+  const nextBorehole = resetReview({
+    ...borehole,
+    interpolation: { ...rule, fraction, note: note.trim() },
+    drawing: { x: preview.x, top: preview.top, bottom: preview.bottom, levels: layers.map(layer => layer.drawingY) },
+    pk: preview.pk,
+    coordinates: preview.coordinates ? { ...preview.coordinates } : null,
+    layers
+  })
+  const affected = new Set([rule.leftBoreholeId, rule.rightBoreholeId])
+  return withActivity(
+    model,
+    model.boreholes.map(item => item.id === boreholeId ? nextBorehole : affected.has(item.id) ? resetReview(item) : item),
+    `${borehole.name}: фиктивная скважина явно пересчитана по правилу ${preview.leftName} ↔ ${preview.rightName}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}%. Обоснование: ${note.trim()}`,
+    now
+  )
+}
+
+export function removeCoreFictitiousBorehole(
+  model: CoreModel,
+  boreholeId: string,
+  now = new Date()
+): CoreModel {
+  const borehole = requireBorehole(model, boreholeId)
+  if (borehole.kind !== 'fictitious') throw new Error('Исходную DXF-скважину нельзя удалить этой командой; используйте обратимое исключение')
+  assertNoFictitiousLinks(model, borehole)
+  const affected = new Set([borehole.interpolation?.leftBoreholeId, borehole.interpolation?.rightBoreholeId])
+  return withActivity(
+    model,
+    model.boreholes.filter(item => item.id !== boreholeId).map(item => affected.has(item.id) ? resetReview(item) : item),
+    `${borehole.name}: фиктивная скважина удалена из расчётной модели; исходные DXF-скважины и геометрия сохранены`,
+    now
+  )
 }

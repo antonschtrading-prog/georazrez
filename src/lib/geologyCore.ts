@@ -3,6 +3,7 @@ import {
   getIgeKey,
   type ActivityItem,
   type Borehole,
+  type BoreholeKind,
   type BoreholeSourceRefs,
   type CodeCandidate,
   type CodeStatus,
@@ -10,6 +11,7 @@ import {
   type GeoIssue,
   type GeoProject,
   type GeoSegment,
+  type FictitiousInterpolation,
   type GapDecision,
   type IgePassport,
   type IssueKind,
@@ -35,7 +37,7 @@ export interface CoreLayer {
   codeStatus: CodeStatus
   candidates: CodeCandidate[]
   codeSource: string
-  depthSource: 'dxf' | 'manual'
+  depthSource: 'dxf' | 'manual' | 'interpolated'
   sourceRefs: LayerSourceRefs
 }
 
@@ -44,6 +46,8 @@ export interface CoreBorehole {
   index: number
   name: string
   sourceNamed: boolean
+  kind: BoreholeKind
+  interpolation: FictitiousInterpolation | null
   sourceRefs: BoreholeSourceRefs
   drawing: {
     x: number
@@ -87,6 +91,31 @@ export interface CoreModel {
   passports: Record<string, CoreIgePassport>
   manualCorrelations: ManualCorrelation[]
   gapDecisions: GapDecision[]
+}
+
+export interface CoreInterpolationPreviewLayer {
+  ordinal: number
+  depth: number
+  leftDepth: number
+  rightDepth: number
+  code: string
+  leftCode: string
+  rightCode: string
+  codeAgreed: boolean
+}
+
+export interface CoreFictitiousPreview {
+  leftBoreholeId: string
+  rightBoreholeId: string
+  leftName: string
+  rightName: string
+  fraction: number
+  x: number
+  top: number
+  bottom: number
+  pk: number
+  coordinates: { x: number; y: number } | null
+  layers: CoreInterpolationPreviewLayer[]
 }
 
 export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'invalid'
@@ -225,6 +254,7 @@ export type CoreIssueKind =
   | 'invalid-source-reference'
   | 'invalid-gap-decision'
   | 'duplicate-gap-decision'
+  | 'invalid-fictitious-rule'
 
 export interface CoreModelIssue {
   id: string
@@ -311,6 +341,8 @@ export function createCoreModelFromExtraction(
       index: index + 1,
       name: sourceNamed ? extraction.names[index] : `Без имени · №${index + 1}`,
       sourceNamed,
+      kind: 'dxf',
+      interpolation: null,
       sourceRefs: {
         sideLines: column.verticals.map(segment => segment.handle || '').filter(Boolean),
         nameText: extraction.nameHandles[index] || ''
@@ -404,6 +436,8 @@ export function createCoreModel(project: GeoProject): CoreModel {
       index: column.index,
       name: column.name,
       sourceNamed: column.sourceNamed,
+      kind: column.kind || 'dxf',
+      interpolation: column.interpolation ? { ...column.interpolation } : null,
       sourceRefs: {
         sideLines: [...(column.sourceRefs?.sideLines || [])],
         nameText: column.sourceRefs?.nameText || ''
@@ -468,6 +502,8 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
       index: column.index,
       name: column.name,
       sourceNamed: column.sourceNamed,
+      kind: column.kind,
+      interpolation: column.interpolation ? { ...column.interpolation } : null,
       x: column.drawing.x,
       top: column.drawing.top,
       bottom: column.drawing.bottom,
@@ -533,6 +569,70 @@ export function getCoreLayerDepthIssue(layers: CoreLayer[], index: number): Laye
 /** Мощность является производной величиной и не сохраняется в модели. */
 export function getCoreLayerThickness(layers: CoreLayer[], index: number): number {
   return layers[index].bottomDepth - (layers[index - 1]?.bottomDepth ?? 0)
+}
+
+/**
+ * Предварительный расчёт фиктивной скважины. Ничего не сохраняет и не выбирает
+ * между разными кодами ИГЭ: расхождение остаётся видимым для ручного решения.
+ */
+export function getCoreFictitiousPreview(
+  model: CoreModel,
+  leftBoreholeId: string,
+  rightBoreholeId: string,
+  fraction: number
+): CoreFictitiousPreview {
+  const leftIndex = model.boreholes.findIndex(item => item.id === leftBoreholeId)
+  const rightIndex = model.boreholes.findIndex(item => item.id === rightBoreholeId)
+  const left = model.boreholes[leftIndex]
+  const right = model.boreholes[rightIndex]
+  if (!left || !right || leftIndex >= rightIndex || left.kind !== 'dxf' || right.kind !== 'dxf') {
+    throw new Error('Выберите две исходные DXF-скважины в порядке слева направо')
+  }
+  if (!left.included || !right.included) throw new Error('Исключённую скважину нельзя использовать как источник интерполяции')
+  if (model.boreholes.slice(leftIndex + 1, rightIndex).some(item => item.kind === 'dxf')) {
+    throw new Error('Между источниками есть другая исходная DXF-скважина')
+  }
+  if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
+    throw new Error('Положение фиктивной скважины должно быть строго между источниками')
+  }
+  if (!left.layers.length || left.layers.length !== right.layers.length) {
+    throw new Error('Для явной интерполяции у исходных скважин должно быть одинаковое ненулевое число подошв')
+  }
+  const layers = left.layers.map((leftLayer, index) => {
+    const rightLayer = right.layers[index]
+    if (getCoreLayerDepthIssue(left.layers, index) || getCoreLayerDepthIssue(right.layers, index)) {
+      throw new Error(`Подошва ${index + 1}: сначала устраните ошибки глубин у исходных скважин`)
+    }
+    const leftCode = leftLayer.igeCode.trim()
+    const rightCode = rightLayer.igeCode.trim()
+    const codeAgreed = Boolean(leftCode) && getIgeKey(leftCode) === getIgeKey(rightCode)
+    return {
+      ordinal: index + 1,
+      depth: leftLayer.bottomDepth + (rightLayer.bottomDepth - leftLayer.bottomDepth) * fraction,
+      leftDepth: leftLayer.bottomDepth,
+      rightDepth: rightLayer.bottomDepth,
+      code: codeAgreed ? leftCode : '',
+      leftCode,
+      rightCode,
+      codeAgreed
+    }
+  })
+  const x = left.drawing.x + (right.drawing.x - left.drawing.x) * fraction
+  const pk = left.pk + (right.pk - left.pk) * fraction
+  const [coordX, coordY] = coreAxisXY(model.project.axis, pk)
+  return {
+    leftBoreholeId,
+    rightBoreholeId,
+    leftName: left.name,
+    rightName: right.name,
+    fraction,
+    x,
+    top: left.drawing.top + (right.drawing.top - left.drawing.top) * fraction,
+    bottom: left.drawing.bottom + (right.drawing.bottom - left.drawing.bottom) * fraction,
+    pk,
+    coordinates: coordX === null || coordY === null ? null : { x: coordX, y: coordY },
+    layers
+  }
 }
 
 /**
@@ -783,7 +883,7 @@ export function getCoreIssues(model: CoreModel): GeoIssue[] {
   const issues: GeoIssue[] = []
   for (const column of model.boreholes) {
     if (!column.included) continue
-    if (!column.sourceNamed) {
+    if (column.kind === 'dxf' && !column.sourceNamed) {
       issues.push({
         id: `name-${column.id}`,
         kind: 'missing-name',
@@ -989,6 +1089,7 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     ...model.project.geometry.circles
   ].flatMap(item => item.handle ? [item.handle] : []))
   const boreholeIds = new Set<string>()
+  const fictitiousRulePairs = new Set<string>()
   const layerOwners = new Map<string, string>()
   const checkSourceReference = (
     handle: string,
@@ -1013,6 +1114,30 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     boreholeIds.add(column.id)
     if (column.coordinates && (!Number.isFinite(column.coordinates.x) || !Number.isFinite(column.coordinates.y))) {
       add({ kind: 'invalid-coordinates', boreholeId: column.id, title: `${column.name}: некорректные координаты`, detail: 'Координаты X и Y должны быть конечными числами либо отсутствовать.' })
+    }
+    if (column.kind === 'fictitious') {
+      const rule = column.interpolation
+      const leftIndex = rule ? model.boreholes.findIndex(item => item.id === rule.leftBoreholeId) : -1
+      const rightIndex = rule ? model.boreholes.findIndex(item => item.id === rule.rightBoreholeId) : -1
+      const left = model.boreholes[leftIndex]
+      const right = model.boreholes[rightIndex]
+      const pairKey = rule ? `${rule.leftBoreholeId}|${rule.rightBoreholeId}` : ''
+      const validRule = Boolean(rule && rule.method === 'linear' && rule.note.trim() && rule.createdAt &&
+        Number.isFinite(rule.fraction) && rule.fraction > 0 && rule.fraction < 1 &&
+        left?.kind === 'dxf' && right?.kind === 'dxf' && leftIndex >= 0 && leftIndex < rightIndex &&
+        !model.boreholes.slice(leftIndex + 1, rightIndex).some(item => item.kind === 'dxf') &&
+        !fictitiousRulePairs.has(pairKey))
+      if (!column.name.trim() || !validRule) {
+        add({
+          kind: 'invalid-fictitious-rule',
+          boreholeId: column.id,
+          title: `${column.name || column.id}: некорректное правило фиктивной скважины`,
+          detail: 'Нужны непустое имя и обоснование, две разные исходные DXF-скважины слева направо и уникальная доля строго между 0 и 1.'
+        })
+      }
+      if (rule) fictitiousRulePairs.add(pairKey)
+    } else if (column.interpolation) {
+      add({ kind: 'invalid-fictitious-rule', boreholeId: column.id, title: `${column.name}: правило присвоено исходной скважине`, detail: 'Правило интерполяции допускается только для объекта типа «фиктивная».' })
     }
     for (const handle of column.sourceRefs.sideLines) checkSourceReference(handle, column, null, 'Боковая линия колонки')
     checkSourceReference(column.sourceRefs.nameText, column, null, 'Подпись наименования')
@@ -1099,6 +1224,8 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
 export function getCoreModelStats(model: CoreModel) {
   return {
     boreholes: model.boreholes.length,
+    sourceBoreholes: model.boreholes.filter(column => column.kind === 'dxf').length,
+    fictitious: model.boreholes.filter(column => column.kind === 'fictitious').length,
     layers: model.boreholes.reduce((sum, column) => sum + column.layers.length, 0),
     passports: Object.keys(model.passports).length
   }

@@ -12,6 +12,7 @@ interface Props {
   igePassport: IgePassport | null
   igeLayerCount: number
   layerNeighbors: LayerNeighbors
+  fictitiousSources: { left: string; right: string } | null
   onNeighborSelect: (boreholeId: string, layerId: string) => void
   onPassportChange: (code: string, field: 'name' | 'description' | 'notes', value: string) => void
   onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
@@ -23,6 +24,8 @@ interface Props {
   onCodeChange: (layerId: string, code: string, status?: CodeStatus) => void
   onToggleExcluded: (reason: string) => void
   onToggleReviewed: () => void
+  onEditFictitious: () => void
+  onDeleteFictitious: () => void
 }
 
 const statusText: Record<CodeStatus, string> = {
@@ -30,10 +33,11 @@ const statusText: Record<CodeStatus, string> = {
   'vertical-only': 'По положению',
   ambiguous: 'Выбор кода',
   'not-found': 'Не найден',
-  manual: 'Подтверждено'
+  manual: 'Подтверждено',
+  interpolated: 'Интерполировано'
 }
 
-export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, fictitiousSources, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed, onEditFictitious, onDeleteFictitious }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -46,7 +50,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
   const selectedCoreLayer = coreColumn.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
-  const hasGeologicalIssues = !coreColumn.sourceNamed || coreColumn.layers.some((layer, index) => getCoreLayerDepthIssue(coreColumn.layers, index) || layer.codeStatus === 'ambiguous' || layer.codeStatus === 'not-found')
+  const hasGeologicalIssues = (coreColumn.kind === 'dxf' && !coreColumn.sourceNamed) || coreColumn.layers.some((layer, index) => getCoreLayerDepthIssue(coreColumn.layers, index) || layer.codeStatus === 'ambiguous' || layer.codeStatus === 'not-found')
   const hasIssues = hasGeologicalIssues || boundaryIssues.length > 0
   const characteristicCoverage = getCharacteristicCoverage(igePassport)
   const characteristicGroups = [...new Set(SOIL_CHARACTERISTICS.map(item => item.group))]
@@ -118,7 +122,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
     <aside className="inspector-panel" aria-label="Свойства скважины">
       <div className="panel-heading inspector-heading">
         <div><span className="panel-kicker">СВОЙСТВА</span><h2>Скважина <span>№{column.index}</span></h2></div>
-        <span className={`source-badge ${column.isExcluded ? 'excluded' : column.sourceNamed ? 'verified' : 'warning'}`}>{column.isExcluded ? 'Исключена' : column.sourceNamed ? 'DXF' : 'Нет имени'}</span>
+        <span className={`source-badge ${column.isExcluded ? 'excluded' : column.kind === 'fictitious' ? 'fictitious' : column.sourceNamed ? 'verified' : 'warning'}`}>{column.isExcluded ? 'Исключена' : column.kind === 'fictitious' ? 'Фиктивная' : column.sourceNamed ? 'DXF' : 'Нет имени'}</span>
       </div>
       <div className="inspector-scroll">
         {column.isExcluded && <div className="excluded-column-note">
@@ -145,7 +149,21 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
           </div>
         </section>
 
-        <section className="source-section" aria-label="Происхождение объектов DXF">
+        {column.kind === 'fictitious' && column.interpolation ? <section className="fictitious-rule-section" aria-label="Правило фиктивной скважины" data-fictitious-rule={column.id}>
+          <div className="section-title-row"><h3>Правило интерполяции</h3><span>не DXF</span></div>
+          <div className="source-ref-grid">
+            <div><span>Источник слева</span><strong>{fictitiousSources?.left || column.interpolation.leftBoreholeId}</strong></div>
+            <div><span>Источник справа</span><strong>{fictitiousSources?.right || column.interpolation.rightBoreholeId}</strong></div>
+            <div><span>Положение</span><strong>{(column.interpolation.fraction * 100).toFixed(2).replace('.', ',')}%</strong></div>
+            <div><span>Метод</span><strong>Линейная интерполяция</strong></div>
+          </div>
+          <p>{column.interpolation.note}</p>
+          <p>После изменения источников значения здесь не пересчитываются скрытно. Перетащите колонку или откройте правило, проверьте preview и подтвердите пересчёт явно.</p>
+          <div className="fictitious-rule-actions">
+            <button type="button" className="button secondary" onClick={onEditFictitious} disabled={disabled}>Проверить и пересчитать</button>
+            <button type="button" className="button secondary danger-button" onClick={onDeleteFictitious}><Trash2 size={14} /> Удалить фиктивную</button>
+          </div>
+        </section> : <section className="source-section" aria-label="Происхождение объектов DXF">
           <div className="section-title-row"><h3>Источник в DXF</h3><span>handle</span></div>
           <div className="source-ref-grid">
             <div><span>Боковые линии</span><strong>{coreColumn.sourceRefs.sideLines.join(' · ') || '—'}</strong></div>
@@ -156,7 +174,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
             </>}
           </div>
           <p>Ссылки указывают на исходные объекты. Ручная правка не переписывает их и не заменяет исходный DXF.</p>
-        </section>
+        </section>}
 
         <section className="layers-section">
           <div className="section-title-row">
@@ -185,8 +203,8 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
                     <span className="layer-number">{index + 1}</span>
                     <input
                       key={`${layer.id}-${layer.depth}`}
-                      className={`depth-input ${layer.depthSource === 'manual' ? 'manual-depth' : ''} ${depthIssue ? 'depth-issue' : ''}`}
-                      title={depthIssue === 'invalid-depth' ? 'Некорректная глубина подошвы' : depthIssue === 'depth-order' ? 'Глубина совпадает с предыдущей или нарушает порядок' : layer.depthSource === 'manual' ? 'Глубина изменена вручную' : 'Глубина из исходного DXF'}
+                      className={`depth-input ${layer.depthSource === 'manual' ? 'manual-depth' : ''} ${layer.depthSource === 'interpolated' ? 'interpolated-depth' : ''} ${depthIssue ? 'depth-issue' : ''}`}
+                      title={depthIssue === 'invalid-depth' ? 'Некорректная глубина подошвы' : depthIssue === 'depth-order' ? 'Глубина совпадает с предыдущей или нарушает порядок' : layer.depthSource === 'manual' ? 'Глубина изменена вручную' : layer.depthSource === 'interpolated' ? 'Глубина получена явной линейной интерполяцией' : 'Глубина из исходного DXF'}
                       defaultValue={String(layer.depth).replace('.', ',')}
                       inputMode="decimal"
                       aria-label={`Глубина слоя ${index + 1}`}
@@ -215,12 +233,12 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
                     />
                     <span className="layer-thickness" title={`Мощность от предыдущей подошвы: ${thickness.toFixed(2).replace('.', ',')} м`}>{thickness.toFixed(2).replace('.', ',')}</span>
                     <span className={`layer-status status-${layer.status}`} title={layer.source}>
-                      {layer.status === 'topology' ? <Link2 size={12} /> : layer.status === 'manual' ? <Check size={12} /> : layer.status === 'vertical-only' ? <CircleDashed size={12} /> : <AlertTriangle size={12} />}
+                      {layer.status === 'topology' ? <Link2 size={12} /> : layer.status === 'manual' ? <Check size={12} /> : layer.status === 'vertical-only' || layer.status === 'interpolated' ? <CircleDashed size={12} /> : <AlertTriangle size={12} />}
                       {statusText[layer.status]}
                     </span>
                   </div>
-                  {layer.status === 'ambiguous' && <div className="candidate-picker" onClick={event => event.stopPropagation()}>
-                    <span>Выберите по границам:</span>
+                  {(layer.status === 'ambiguous' || layer.status === 'not-found' && candidates.length > 0) && <div className="candidate-picker" onClick={event => event.stopPropagation()}>
+                    <span>{layer.status === 'ambiguous' ? 'Выберите по границам:' : 'Коды исходных скважин:'}</span>
                     <div>{candidates.map(code => <button type="button" key={code} disabled={disabled} onClick={() => onCodeChange(layer.id, code, 'manual')}>{code}</button>)}</div>
                   </div>}
                 </div>

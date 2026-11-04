@@ -1,4 +1,4 @@
-export type CodeStatus = 'topology' | 'vertical-only' | 'ambiguous' | 'not-found' | 'manual'
+export type CodeStatus = 'topology' | 'vertical-only' | 'ambiguous' | 'not-found' | 'manual' | 'interpolated'
 
 export interface CodeCandidate {
   code: string
@@ -27,7 +27,7 @@ export interface Layer {
   status: CodeStatus
   candidates: CodeCandidate[]
   source: string
-  depthSource?: 'dxf' | 'manual'
+  depthSource?: 'dxf' | 'manual' | 'interpolated'
   sourceRefs?: LayerSourceRefs
 }
 
@@ -37,11 +37,26 @@ export interface ExcludedLabel {
   reason: string
 }
 
+export type BoreholeKind = 'dxf' | 'fictitious'
+
+/** Сохранённое правило расчётной скважины; не является исходным объектом DXF. */
+export interface FictitiousInterpolation {
+  method: 'linear'
+  leftBoreholeId: string
+  rightBoreholeId: string
+  /** Доля расстояния от левой исходной скважины к правой. */
+  fraction: number
+  note: string
+  createdAt: string
+}
+
 export interface Borehole {
   id: string
   index: number
   name: string
   sourceNamed: boolean
+  kind?: BoreholeKind
+  interpolation?: FictitiousInterpolation | null
   x: number
   top: number
   bottom: number

@@ -5,6 +5,16 @@ import type { CoreBoundaryModel } from '@/lib/geologyCore'
 
 type View = { cx: number; cy: number; w: number; h: number }
 type DepthDrag = { pointerId: number; startY: number; startDepth: number; min: number; max: number; lastDepth: number }
+type PanDrag = { x: number; y: number; view: View; moved: boolean }
+type FictitiousDrag = {
+  pointerId: number
+  startX: number
+  startFraction: number
+  leftX: number
+  rightX: number
+  viewW: number
+  lastFraction: number
+}
 
 interface Props {
   project: GeoProject
@@ -18,15 +28,20 @@ interface Props {
   showCodes: boolean
   fitToken: number
   focusToken: number
+  fictitiousPickMode: boolean
+  onFictitiousPosition: (x: number) => void
+  onFictitiousMove: (id: string, fraction?: number) => void
 }
 
-export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken }: Props) {
+export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken, fictitiousPickMode, onFictitiousPosition, onFictitiousMove }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
   const [dragDepth, setDragDepth] = useState<number | null>(null)
-  const drag = useRef<{ x: number; y: number; view: View } | null>(null)
+  const [dragFictitious, setDragFictitious] = useState<{ id: string; fraction: number } | null>(null)
+  const drag = useRef<PanDrag | null>(null)
   const depthDrag = useRef<DepthDrag | null>(null)
+  const fictitiousDrag = useRef<FictitiousDrag | null>(null)
   const selected = project.columns.find(c => c.id === selectedId)
   const candidateKeys = new Set((selectedLayer?.candidates || []).map(candidate => `${candidate.x}|${candidate.y}`))
   const displayedDepth = dragDepth ?? selectedLayer?.depth ?? 0
@@ -46,6 +61,11 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
     depthDrag.current = null
     setDragDepth(null)
   }, [project.id, selectedId, selectedLayer?.id])
+
+  useEffect(() => {
+    fictitiousDrag.current = null
+    setDragFictitious(null)
+  }, [project.id])
 
   const fit = () => {
     const { minX, maxX, minY, maxY } = project.bounds
@@ -126,29 +146,39 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
   const viewBox = `${view.cx - view.w / 2} ${-view.cy - view.h / 2} ${view.w} ${view.h}`
 
   return (
-    <div className="profile-canvas" ref={host}>
+    <div className={`profile-canvas ${fictitiousPickMode ? 'fictitious-picking' : ''}`} ref={host}>
       <svg
         viewBox={viewBox}
         className="profile-svg"
         role="img"
-        aria-label="Интерактивный геологический разрез"
+        aria-label={fictitiousPickMode ? 'Укажите место фиктивной скважины на геологическом разрезе' : 'Интерактивный геологический разрез'}
         onWheel={event => zoom(event.deltaY > 0 ? 1.16 : 0.86, event.clientX, event.clientY)}
       >
         <rect
           x={view.cx - view.w / 2} y={-view.cy - view.h / 2} width={view.w} height={view.h}
           fill="var(--canvas-bg)" className="canvas-pan-surface"
           onPointerDown={event => {
+            if (event.button !== 0) return
             event.currentTarget.setPointerCapture(event.pointerId)
-            drag.current = { x: event.clientX, y: event.clientY, view }
+            drag.current = { x: event.clientX, y: event.clientY, view, moved: false }
           }}
           onPointerMove={event => {
             if (!drag.current || !host.current) return
+            const current = drag.current
+            if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > 3) current.moved = true
             const rect = host.current.getBoundingClientRect()
-            const dx = (event.clientX - drag.current.x) * drag.current.view.w / rect.width
-            const dy = (event.clientY - drag.current.y) * drag.current.view.h / rect.height
-            setView({ ...drag.current.view, cx: drag.current.view.cx - dx, cy: drag.current.view.cy + dy })
+            const dx = (event.clientX - current.x) * current.view.w / rect.width
+            const dy = (event.clientY - current.y) * current.view.h / rect.height
+            setView({ ...current.view, cx: current.view.cx - dx, cy: current.view.cy + dy })
           }}
-          onPointerUp={() => { drag.current = null }}
+          onPointerUp={event => {
+            const current = drag.current
+            drag.current = null
+            if (!fictitiousPickMode || !current || current.moved || !host.current) return
+            const rect = host.current.getBoundingClientRect()
+            const px = (event.clientX - rect.left) / rect.width
+            onFictitiousPosition(current.view.cx - current.view.w / 2 + px * current.view.w)
+          }}
           onPointerCancel={() => { drag.current = null }}
         />
         <g transform="scale(1,-1)">
@@ -200,15 +230,84 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
         </g>}
         {visible.columns.map(column => {
           const active = column.id === selectedId
+          const interpolation = column.kind === 'fictitious' ? column.interpolation : null
+          const left = interpolation ? project.columns.find(item => item.id === interpolation.leftBoreholeId) : null
+          const right = interpolation ? project.columns.find(item => item.id === interpolation.rightBoreholeId) : null
+          const fraction = dragFictitious?.id === column.id ? dragFictitious.fraction : interpolation?.fraction ?? 0
+          const columnX = interpolation && left && right ? left.x + (right.x - left.x) * fraction : column.x
+          const dragging = dragFictitious?.id === column.id
           return (
-            <g key={column.id} data-borehole={column.id}>
+            <g key={column.id} data-borehole={column.id} data-borehole-kind={column.kind || 'dxf'}>
               {active && <>
-                <rect className="selected-column-fill" x={column.x - 2.8} y={-column.top - 8} width={5.6} height={column.top - column.bottom + 13} />
-                <line className="selected-column-line" x1={column.x} y1={-column.bottom + 4} x2={column.x} y2={-column.top - 7} vectorEffect="non-scaling-stroke" />
+                <rect className="selected-column-fill" x={columnX - 2.8} y={-column.top - 8} width={5.6} height={column.top - column.bottom + 13} />
+                <line className="selected-column-line" x1={columnX} y1={-column.bottom + 4} x2={columnX} y2={-column.top - 7} vectorEffect="non-scaling-stroke" />
               </>}
+              {interpolation && left && right && <g className={`fictitious-column ${dragging ? 'dragging' : ''}`} data-fictitious={column.id} data-fictitious-x={columnX}>
+                <line className="fictitious-column-line" x1={columnX} y1={-column.bottom} x2={columnX} y2={-column.top} vectorEffect="non-scaling-stroke" />
+                <line className="fictitious-level-marker" x1={columnX - 2.4} y1={-column.top} x2={columnX + 2.4} y2={-column.top} vectorEffect="non-scaling-stroke" />
+                <line className="fictitious-level-marker" x1={columnX - 2.4} y1={-column.bottom} x2={columnX + 2.4} y2={-column.bottom} vectorEffect="non-scaling-stroke" />
+                <circle className="fictitious-drag-visible" cx={columnX} cy={-column.top - 6} r={0.95} vectorEffect="non-scaling-stroke" />
+                <line
+                  className="fictitious-drag-hit"
+                  x1={columnX - 4} y1={-column.top - 6} x2={columnX + 4} y2={-column.top - 6}
+                  vectorEffect="non-scaling-stroke"
+                  data-fictitious-handle={column.id}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label={`Положение фиктивной скважины ${column.name}`}
+                  aria-valuemin={0.01}
+                  aria-valuemax={99.99}
+                  aria-valuenow={Math.round(fraction * 10000) / 100}
+                  aria-valuetext={`${(fraction * 100).toFixed(2).replace('.', ',')}% между ${left.name} и ${right.name}`}
+                  onKeyDown={event => {
+                    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    const step = event.shiftKey ? 0.001 : 0.01
+                    const next = Math.min(0.9999, Math.max(0.0001, interpolation.fraction + (event.key === 'ArrowRight' ? step : -step)))
+                    onFictitiousMove(column.id, next)
+                  }}
+                  onPointerDown={event => {
+                    if (event.button !== 0) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                    fictitiousDrag.current = {
+                      pointerId: event.pointerId,
+                      startX: event.clientX,
+                      startFraction: interpolation.fraction,
+                      leftX: left.x,
+                      rightX: right.x,
+                      viewW: view.w,
+                      lastFraction: interpolation.fraction
+                    }
+                    setDragFictitious({ id: column.id, fraction: interpolation.fraction })
+                  }}
+                  onPointerMove={event => {
+                    const current = fictitiousDrag.current
+                    if (!current || current.pointerId !== event.pointerId || !host.current) return
+                    const rect = host.current.getBoundingClientRect()
+                    const worldDelta = (event.clientX - current.startX) * current.viewW / rect.width
+                    const next = Math.min(0.9999, Math.max(0.0001, current.startFraction + worldDelta / (current.rightX - current.leftX)))
+                    current.lastFraction = next
+                    setDragFictitious({ id: column.id, fraction: next })
+                  }}
+                  onPointerUp={event => {
+                    const current = fictitiousDrag.current
+                    if (!current || current.pointerId !== event.pointerId) return
+                    const next = current.lastFraction
+                    fictitiousDrag.current = null
+                    setDragFictitious(null)
+                    onFictitiousMove(column.id, next)
+                  }}
+                  onPointerCancel={() => { fictitiousDrag.current = null; setDragFictitious(null) }}
+                >
+                  <title>Перетащите для предварительного положения. Модель изменится только после подтверждения пересчёта.</title>
+                </line>
+              </g>}
               <rect
                 className="column-hit-area"
-                x={column.x - 4} y={-column.top - 12} width={8} height={column.top - column.bottom + 20}
+                x={columnX - 4} y={-column.top - (interpolation ? 1 : 12)} width={8} height={column.top - column.bottom + (interpolation ? 9 : 20)}
                 onClick={() => onSelect(column.id)}
                 onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(column.id) }}
                 tabIndex={0}
@@ -294,6 +393,10 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
         </g>}
       </svg>
 
+      {fictitiousPickMode && <div className="fictitious-pick-banner" role="status">
+        <strong>Укажите место фиктивной скважины</strong>
+        <span>Клик строго между соседними исходными DXF-скважинами · панорама не создаёт скважину</span>
+      </div>}
       <div className="canvas-scale-readout">
         <span>Горизонтально 1:{project.horizontalScale}</span>
         <span>Вертикально 1:{project.verticalScale}</span>
@@ -305,7 +408,7 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
         <button type="button" onClick={() => zoom(0.8)} title="Увеличить" aria-label="Увеличить"><Plus size={16} /></button>
         <button type="button" onClick={() => focus(selected)} title="Показать выбранную скважину" aria-label="Показать выбранную скважину"><Crosshair size={16} /></button>
       </div>
-      <div className="canvas-position-readout">В поле: {visible.columns.length} · Границы: {boundaries.connected} · Разрывы: {boundaries.gaps + boundaries.invalid} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}</div>
+      <div className="canvas-position-readout">В поле: {visible.columns.length} · Границы: {boundaries.connected} · Разрывы: {boundaries.gaps + boundaries.invalid} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}{dragFictitious ? ` · Preview положения: ${(dragFictitious.fraction * 100).toFixed(2).replace('.', ',')}% · модель пока не изменена` : ''}</div>
     </div>
   )
 }
