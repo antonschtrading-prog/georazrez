@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreReviewItems, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -274,6 +274,52 @@ export async function exportWorkbook(project: GeoProject) {
     })
   }
   control.getRow(1).font = { bold: true }
+
+  const reviewSheet = workbook.addWorksheet('Очередь проверки')
+  reviewSheet.columns = [
+    { header: 'Тип', key: 'source', width: 22 },
+    { header: 'Категория', key: 'kind', width: 28 },
+    { header: 'Скважина / участок', key: 'object', width: 42 },
+    { header: 'ПК', key: 'pk', width: 28 },
+    { header: 'Подошва №', key: 'ordinal', width: 16 },
+    { header: 'Проблема', key: 'title', width: 54 },
+    { header: 'Пояснение', key: 'detail', width: 90 },
+    { header: 'Кандидаты ИГЭ', key: 'candidates', width: 32 },
+    { header: 'Идентификатор задачи', key: 'id', width: 42 }
+  ]
+  const reviewKindLabels = {
+    'missing-name': 'Нет подписи скважины',
+    'ambiguous-code': 'Неоднозначный ИГЭ',
+    'missing-code': 'ИГЭ не найден',
+    'invalid-depth': 'Некорректная глубина',
+    'depth-order': 'Порядок подошв',
+    'invalid-boundary': 'Некорректная граница'
+  } as const
+  const reviewItems = getCoreReviewItems(coreModel, boundaryModel)
+  for (const item of reviewItems) {
+    const column = coreModel.boreholes.find(candidate => candidate.id === item.boreholeId)
+    const boundary = item.boundaryId
+      ? boundaryModel.items.find(candidate => candidate.id === item.boundaryId)
+      : null
+    const layer = item.layerId
+      ? coreModel.boreholes.flatMap(candidate => candidate.layers).find(candidate => candidate.id === item.layerId)
+      : null
+    reviewSheet.addRow({
+      source: item.source === 'boundary' ? 'Корреляция границ' : 'Геологическая модель',
+      kind: reviewKindLabels[item.kind],
+      object: boundary ? `${boundary.leftBoreholeName} → ${boundary.rightBoreholeName}` : column?.name || item.boreholeId,
+      pk: boundary ? `${formatPk(boundary.leftPk)} — ${formatPk(boundary.rightPk)}` : column ? formatPk(column.pk) : '',
+      ordinal: layer?.ordinal ?? '',
+      title: item.title,
+      detail: item.detail,
+      candidates: item.candidates?.join(' / ') || '',
+      id: item.id
+    })
+  }
+  reviewSheet.getRow(1).font = { bold: true }
+  reviewSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  reviewSheet.autoFilter = { from: 'A1', to: 'I1' }
+  reviewSheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const coreControl = workbook.addWorksheet('Контроль ядра')
   coreControl.columns = [
