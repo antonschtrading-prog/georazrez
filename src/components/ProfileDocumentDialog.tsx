@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, FileImage, FileText, LoaderCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileImage, FileOutput, FileText, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProfileSheetSvg } from '@/components/ProfileSheetSvg'
 import type { CoreProfileDocument } from '@/lib/profileDocument'
 import { exportProfilePdf, exportProfileSvg } from '@/lib/profileExport'
+import { exportCoreProfileDxf } from '@/lib/profileDxfExport'
 
 interface Props {
   open: boolean
@@ -45,6 +46,17 @@ export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
     }
   }
 
+  const exportDxf = () => {
+    if (busy) return
+    setExportError('')
+    try {
+      const stats = exportCoreProfileDxf(profile)
+      toast.success(`Производный DXF сформирован: ${stats.boreholes} скважин, ${stats.bands} оформленных участков`)
+    } catch (reason) {
+      setExportError(reason instanceof Error ? reason.message : 'Не удалось сформировать DXF')
+    }
+  }
+
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="profile-document-dialog">
       <DialogHeader>
@@ -62,6 +74,7 @@ export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
           </div>
           <span>{profile.boreholeCount} скважин · {profile.bandCount} участков заливки · {profile.unfilledIntervals} без полной геометрии</span>
           <div className="profile-export-actions">
+            <button type="button" className="button secondary" onClick={exportDxf} disabled={Boolean(busy)}><FileOutput size={16} /> DXF · производный</button>
             <button type="button" className="button secondary" onClick={exportSvg} disabled={Boolean(busy)}><FileImage size={16} /> SVG · все листы</button>
             <button type="button" className="button primary" onClick={exportPdf} disabled={Boolean(busy)}>{busy === 'pdf' ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />} PDF · все листы</button>
           </div>
@@ -71,7 +84,7 @@ export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
         </div>
         <div className="profile-document-footnote">
           <span>Незакрашенные интервалы показывают отсутствие полной пары границ или согласованного ИГЭ; программа не дорисовывает их автоматически.</span>
-          <span>PDF содержит локально растрированные листы; SVG сохраняет векторную геометрию.</span>
+          <span>PDF содержит локально растрированные листы; SVG сохраняет векторную геометрию. DXF сохраняется новым производным файлом и не перезаписывает источник.</span>
         </div>
         {exportError && <div className="import-error" role="alert">{exportError}</div>}
       </> : <div className="issue-empty">В активном разрезе нет скважин для формирования профиля.</div>}

@@ -21,6 +21,8 @@ export interface ProfilePoint {
 
 export interface ProfileBand {
   id: string
+  /** Координаты исходной расчётной плоскости DXF, без листового преобразования. */
+  sourcePoints: ProfilePoint[]
   points: ProfilePoint[]
   codeKey: string | null
   code: string
@@ -32,6 +34,7 @@ export interface ProfileBand {
 
 export interface ProfileLine {
   id: string
+  sourcePoints: ProfilePoint[]
   points: ProfilePoint[]
   kind: 'surface' | 'boundary' | 'pinchout' | 'invalid'
   manual: boolean
@@ -40,6 +43,7 @@ export interface ProfileLine {
 export interface ProfileDepthTick {
   id: string
   depth: number
+  sourceY: number
   y: number
   code: string
   status: string
@@ -50,6 +54,9 @@ export interface ProfileBorehole {
   name: string
   kind: 'dxf' | 'fictitious'
   pk: number
+  sourceX: number
+  sourceTop: number
+  sourceBottom: number
   x: number
   topY: number
   bottomY: number
@@ -115,6 +122,10 @@ export function buildCoreProfileDocument(
       x: columns.length === 1 ? (CHART.left + CHART.right) / 2 : CHART.left + (x - minX) / spanX * (CHART.right - CHART.left),
       y: CHART.top + (maxY - y) / spanY * (CHART.bottom - CHART.top)
     })
+    const sourcePoint = (value: ProfilePoint): ProfilePoint => ({
+      x: columns.length === 1 ? minX : minX + (value.x - CHART.left) / (CHART.right - CHART.left) * spanX,
+      y: maxY - (value.y - CHART.top) / (CHART.bottom - CHART.top) * spanY
+    })
     const bands: ProfileBand[] = []
     const lines: ProfileLine[] = []
     let unfilledIntervals = 0
@@ -129,6 +140,7 @@ export function buildCoreProfileDocument(
 
       lines.push({
         id: `surface-${left.id}-${right.id}`,
+        sourcePoints: [{ x: left.drawing.x, y: left.drawing.top }, { x: right.drawing.x, y: right.drawing.top }],
         points: [point(left.drawing.x, left.drawing.top), point(right.drawing.x, right.drawing.top)],
         kind: 'surface',
         manual: false
@@ -139,6 +151,7 @@ export function buildCoreProfileDocument(
         if (item.status !== 'connected' && !item.issues.some(issue => issue.kind === 'crossing')) continue
         lines.push({
           id: item.id,
+          sourcePoints: [{ x: item.x1, y: item.y1 }, { x: item.x2, y: item.y2 }],
           points: [point(item.x1, item.y1), point(item.x2, item.y2)],
           kind: item.status === 'invalid' ? 'invalid' : 'boundary',
           manual: item.manualCorrelation
@@ -166,6 +179,7 @@ export function buildCoreProfileDocument(
         const points = [upperPoints[0], upperPoints[1], point(lower.x2, lower.y2!), point(lower.x1, lower.y1!)]
         bands.push({
           id: `band-${lower.id}`,
+          sourcePoints: points.map(sourcePoint),
           points,
           codeKey: key,
           code: key ? leftLayer.igeCode : '',
@@ -195,6 +209,7 @@ export function buildCoreProfileDocument(
         const points = [upper, tip, lower]
         bands.push({
           id: `band-${pinchout.id}`,
+          sourcePoints: points.map(sourcePoint),
           points,
           codeKey: resolvedKey,
           code: resolvedKey ? existingLayer.igeCode : '',
@@ -207,12 +222,18 @@ export function buildCoreProfileDocument(
         unfilledIntervals -= 1
         lines.push({
           id: `${pinchout.id}-lower`,
+          sourcePoints: [sourcePoint(lower), sourcePoint(tip)],
           points: [lower, tip],
           kind: 'pinchout',
           manual: false
         })
         lines.push({
           id: `${pinchout.id}-upper`,
+          sourcePoints: [
+            { x: pinchout.upperLeftX, y: pinchout.upperLeftY },
+            sourcePoint(tip),
+            { x: pinchout.upperRightX, y: pinchout.upperRightY }
+          ],
           points: [point(pinchout.upperLeftX, pinchout.upperLeftY), tip, point(pinchout.upperRightX, pinchout.upperRightY)],
           kind: 'pinchout',
           manual: false
@@ -225,6 +246,9 @@ export function buildCoreProfileDocument(
       name: column.name,
       kind: column.kind,
       pk: column.pk,
+      sourceX: column.drawing.x,
+      sourceTop: column.drawing.top,
+      sourceBottom: column.drawing.bottom,
       x: point(column.drawing.x, column.drawing.top).x,
       topY: point(column.drawing.x, column.drawing.top).y,
       bottomY: point(column.drawing.x, column.drawing.bottom).y,
@@ -232,6 +256,7 @@ export function buildCoreProfileDocument(
       ticks: column.layers.map(layer => ({
         id: layer.id,
         depth: layer.bottomDepth,
+        sourceY: layer.drawingY,
         y: point(column.drawing.x, layer.drawingY).y,
         code: layer.igeCode,
         status: layer.codeStatus
