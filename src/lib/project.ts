@@ -1,5 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
+import { createCoreModel, validateCoreModel } from './geologyCore'
 import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLabTestStatistics, getLayerDepthIssue, getLayerThickness, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -551,6 +552,33 @@ export async function exportWorkbook(project: GeoProject) {
     })
   }
   control.getRow(1).font = { bold: true }
+
+  const coreControl = workbook.addWorksheet('Контроль ядра')
+  coreControl.columns = [
+    { header: 'Серьёзность', key: 'severity', width: 16 },
+    { header: 'Тип', key: 'kind', width: 28 },
+    { header: 'Скважина', key: 'borehole', width: 26 },
+    { header: 'Слой / испытание', key: 'entity', width: 32 },
+    { header: 'Паспорт ИГЭ', key: 'passport', width: 20 },
+    { header: 'Замечание', key: 'title', width: 48 },
+    { header: 'Пояснение', key: 'detail', width: 90 }
+  ]
+  const coreIssues = validateCoreModel(createCoreModel(project))
+  for (const issue of coreIssues) {
+    coreControl.addRow({
+      severity: issue.severity === 'error' ? 'Ошибка' : 'Предупреждение',
+      kind: issue.kind,
+      borehole: project.columns.find(column => column.id === issue.boreholeId)?.name || issue.boreholeId || '',
+      entity: issue.layerId || issue.testId || '',
+      passport: issue.passportKey || '',
+      title: issue.title,
+      detail: issue.detail
+    })
+  }
+  coreControl.getRow(1).font = { bold: true }
+  coreControl.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  coreControl.autoFilter = { from: 'A1', to: 'G1' }
+  coreControl.views = [{ state: 'frozen', ySplit: 1 }]
 
   const journal = workbook.addWorksheet('Журнал')
   journal.columns = [{ header: 'Тип', width: 18 }, { header: 'Событие', width: 90 }, { header: 'Отметка', width: 24 }]

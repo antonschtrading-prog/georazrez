@@ -9,6 +9,7 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, downloadLabTemplate, exportProjectFile, exportWorkbook, addActivity, readLabWorkbook, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
+import { createCoreModel, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
 import { getCodeSummary, getIgeKey, getIssues, getLabRegistry, getLabTestIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -82,6 +83,11 @@ export default function App() {
   const issues = useMemo(() => project ? getIssues(project) : [], [project])
   const codeSummary = useMemo(() => project ? getCodeSummary(project) : [], [project])
   const labRegistry = useMemo(() => project ? getLabRegistry(project) : [], [project])
+  const coreReport = useMemo(() => {
+    if (!project) return null
+    const model = createCoreModel(project)
+    return { stats: getCoreModelStats(model), issues: validateCoreModel(model) }
+  }, [project])
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
@@ -567,8 +573,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span>Ядро: ENTITIES · геометрия колонок · топология границ</span>
-        <span>Прототип 0.16</span>
+        <span title="Источник DXF: ENTITIES · геометрия колонок · топология границ">Каркас ядра 0.17 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.17</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
