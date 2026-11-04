@@ -204,6 +204,9 @@ export function deleteCoreLayer(
   const borehole = requireBorehole(model, boreholeId)
   if (!borehole.included) throw new Error('Исключённая колонка не редактируется')
   const layer = requireLayer(borehole, layerId)
+  if (model.manualCorrelations.some(correlation => correlation.leftLayerId === layerId || correlation.rightLayerId === layerId)) {
+    throw new Error('Сначала снимите ручную корреляцию этой подошвы')
+  }
   const nextBorehole = resetReview({
     ...borehole,
     layers: renumberLayers(borehole.layers.filter(item => item.id !== layerId))
@@ -366,4 +369,80 @@ export function changeCoreCharacteristic(
       }
     }
   }
+}
+
+function findLayerOwner(model: CoreModel, layerId: string): CoreBorehole | undefined {
+  return model.boreholes.find(borehole => borehole.layers.some(layer => layer.id === layerId))
+}
+
+export function addCoreManualCorrelation(
+  model: CoreModel,
+  sourceLayerId: string,
+  targetLayerId: string,
+  note: string,
+  now = new Date()
+): CoreModel {
+  if (!note.trim()) throw new Error('Укажите инженерное обоснование корреляции')
+  if (sourceLayerId === targetLayerId) throw new Error('Подошва не может коррелироваться сама с собой')
+  const source = findLayerOwner(model, sourceLayerId)
+  const target = findLayerOwner(model, targetLayerId)
+  if (!source || !target) throw new Error('Одна из подошв не найдена в канонической модели')
+  const active = model.boreholes.filter(borehole => borehole.included)
+  const sourceIndex = active.findIndex(borehole => borehole.id === source.id)
+  const targetIndex = active.findIndex(borehole => borehole.id === target.id)
+  if (sourceIndex < 0 || targetIndex < 0 || Math.abs(sourceIndex - targetIndex) !== 1) {
+    throw new Error('Ручная корреляция допускается только между соседними активными скважинами')
+  }
+  const left = sourceIndex < targetIndex ? source : target
+  const right = sourceIndex < targetIndex ? target : source
+  const leftLayerId = sourceIndex < targetIndex ? sourceLayerId : targetLayerId
+  const rightLayerId = sourceIndex < targetIndex ? targetLayerId : sourceLayerId
+  const exact = model.manualCorrelations.find(correlation =>
+    correlation.leftLayerId === leftLayerId && correlation.rightLayerId === rightLayerId
+  )
+  if (exact) return model
+  const conflict = model.manualCorrelations.find(correlation => {
+    const existingLeft = findLayerOwner(model, correlation.leftLayerId)
+    const existingRight = findLayerOwner(model, correlation.rightLayerId)
+    return existingLeft?.id === left.id && existingRight?.id === right.id &&
+      (correlation.leftLayerId === leftLayerId || correlation.rightLayerId === rightLayerId)
+  })
+  if (conflict) throw new Error('Одна из подошв уже имеет ручную корреляцию в этой паре скважин')
+
+  const leftLayer = requireLayer(left, leftLayerId)
+  const rightLayer = requireLayer(right, rightLayerId)
+  const correlation = {
+    id: `correlation-${leftLayerId}-${rightLayerId}`,
+    leftLayerId,
+    rightLayerId,
+    note: note.trim(),
+    createdAt: now.toISOString()
+  }
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => borehole.id === left.id || borehole.id === right.id ? resetReview(borehole) : borehole),
+    `${left.name}, подошва ${leftLayer.ordinal} ↔ ${right.name}, подошва ${rightLayer.ordinal}: добавлена ручная корреляция. Обоснование: ${correlation.note}`,
+    now
+  )
+  return { ...next, manualCorrelations: [...model.manualCorrelations, correlation] }
+}
+
+export function removeCoreManualCorrelation(
+  model: CoreModel,
+  correlationId: string,
+  now = new Date()
+): CoreModel {
+  const correlation = model.manualCorrelations.find(item => item.id === correlationId)
+  if (!correlation) return model
+  const left = findLayerOwner(model, correlation.leftLayerId)
+  const right = findLayerOwner(model, correlation.rightLayerId)
+  const leftLayer = left?.layers.find(layer => layer.id === correlation.leftLayerId)
+  const rightLayer = right?.layers.find(layer => layer.id === correlation.rightLayerId)
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => borehole.id === left?.id || borehole.id === right?.id ? resetReview(borehole) : borehole),
+    `Ручная корреляция снята: ${left?.name || correlation.leftLayerId}, подошва ${leftLayer?.ordinal ?? '—'} ↔ ${right?.name || correlation.rightLayerId}, подошва ${rightLayer?.ordinal ?? '—'}`,
+    now
+  )
+  return { ...next, manualCorrelations: model.manualCorrelations.filter(item => item.id !== correlationId) }
 }

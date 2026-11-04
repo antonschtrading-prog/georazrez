@@ -104,6 +104,14 @@ export interface IgePassport {
   characteristics?: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
 }
 
+export interface ManualCorrelation {
+  id: string
+  leftLayerId: string
+  rightLayerId: string
+  note: string
+  createdAt: string
+}
+
 export interface GeoProject {
   schemaVersion: 1
   id: string
@@ -122,6 +130,7 @@ export interface GeoProject {
   }
   bounds: { minX: number; maxX: number; minY: number; maxY: number }
   igePassports?: Record<string, IgePassport>
+  manualCorrelations?: ManualCorrelation[]
   activity: ActivityItem[]
 }
 

@@ -12,6 +12,7 @@ import {
   type LayerDepthIssue,
   type LayerNeighbor,
   type LayerNeighbors,
+  type ManualCorrelation,
   type SoilCharacteristicKey,
   type SoilCharacteristicRecord
 } from '@/types/geology'
@@ -77,6 +78,7 @@ export interface CoreModel {
   }
   boreholes: CoreBorehole[]
   passports: Record<string, CoreIgePassport>
+  manualCorrelations: ManualCorrelation[]
 }
 
 export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'invalid'
@@ -84,6 +86,8 @@ export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'inv
 export interface CoreBoundaryItem {
   id: string
   ordinal: number
+  leftOrdinal: number | null
+  rightOrdinal: number | null
   leftBoreholeId: string
   rightBoreholeId: string
   leftBoreholeName: string
@@ -102,6 +106,9 @@ export interface CoreBoundaryItem {
   y2: number | null
   status: CoreBoundaryStatus
   manual: boolean
+  manualCorrelation: boolean
+  correlationId: string | null
+  correlationNote: string
 }
 
 export interface CoreBoundaryModel {
@@ -148,6 +155,8 @@ export type CoreIssueKind =
   | 'depth-order'
   | 'invalid-coordinates'
   | 'invalid-passport-key'
+  | 'invalid-correlation'
+  | 'duplicate-correlation'
 
 export interface CoreModelIssue {
   id: string
@@ -284,7 +293,8 @@ export function createCoreModelFromExtraction(
       activity: [{ id: `import-${now.getTime()}`, type: 'system', text: 'Проект сформирован локально из DXF и Excel', at: now.toLocaleString('ru-RU') }]
     },
     boreholes,
-    passports: {}
+    passports: {},
+    manualCorrelations: []
   }
 }
 
@@ -350,7 +360,8 @@ export function createCoreModel(project: GeoProject): CoreModel {
     })),
     passports: Object.fromEntries(
       Object.entries(project.igePassports || {}).map(([key, passport]) => [key, clonePassport(key, passport)])
-    )
+    ),
+    manualCorrelations: (project.manualCorrelations || []).map(correlation => ({ ...correlation }))
   }
 }
 
@@ -410,6 +421,7 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
         )
       }])
     ),
+    manualCorrelations: model.manualCorrelations.map(correlation => ({ ...correlation })),
     activity: model.project.activity.map(item => ({ ...item }))
   }
 }
@@ -429,9 +441,9 @@ export function getCoreLayerThickness(layers: CoreLayer[], index: number): numbe
 }
 
 /**
- * Расчётные границы соединяют только одноимённые по порядку подошвы соседних
- * активных колонок. Разный состав слоёв остаётся видимым разрывом корреляции:
- * программа не создаёт выклинивание и не изменяет исходную геометрию DXF.
+ * Порядковая корреляция применяется только к подошвам, не занятым ручной связью.
+ * Ручная связь взаимно однозначна внутри пары скважин: высвобожденная ordinal-подошва
+ * остаётся отдельным разрывом. Ни одна исходная геометрия DXF при этом не изменяется.
  */
 export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
   const items: CoreBoundaryItem[] = []
@@ -442,18 +454,33 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
   for (let pairIndex = 0; pairIndex < active.length - 1; pairIndex += 1) {
     const left = active[pairIndex]
     const right = active[pairIndex + 1]
-    const boundaryCount = Math.max(left.layers.length, right.layers.length)
-    for (let layerIndex = 0; layerIndex < boundaryCount; layerIndex += 1) {
-      const leftLayer = left.layers[layerIndex] || null
-      const rightLayer = right.layers[layerIndex] || null
-      const leftDepthIssue = leftLayer ? getCoreLayerDepthIssue(left.layers, layerIndex) : null
-      const rightDepthIssue = rightLayer ? getCoreLayerDepthIssue(right.layers, layerIndex) : null
+    const correlations = model.manualCorrelations.filter(correlation =>
+      left.layers.some(layer => layer.id === correlation.leftLayerId) &&
+      right.layers.some(layer => layer.id === correlation.rightLayerId)
+    )
+    const manualLeft = new Map(correlations.map(correlation => [correlation.leftLayerId, correlation]))
+    const manualRight = new Map(correlations.map(correlation => [correlation.rightLayerId, correlation]))
+
+    const addItem = (
+      leftLayer: CoreLayer | null,
+      rightLayer: CoreLayer | null,
+      correlation: ManualCorrelation | null = null
+    ) => {
+      const leftIndex = leftLayer ? left.layers.findIndex(layer => layer.id === leftLayer.id) : -1
+      const rightIndex = rightLayer ? right.layers.findIndex(layer => layer.id === rightLayer.id) : -1
+      const leftDepthIssue = leftLayer ? getCoreLayerDepthIssue(left.layers, leftIndex) : null
+      const rightDepthIssue = rightLayer ? getCoreLayerDepthIssue(right.layers, rightIndex) : null
       const status: CoreBoundaryStatus = !leftLayer ? 'right-only'
         : !rightLayer ? 'left-only'
           : leftDepthIssue || rightDepthIssue || !Number.isFinite(model.project.verticalScale) || model.project.verticalScale <= 0 ? 'invalid' : 'connected'
+      const ordinal = leftLayer?.ordinal ?? rightLayer?.ordinal ?? 0
       items.push({
-        id: `boundary-${left.id}-${right.id}-${layerIndex + 1}`,
-        ordinal: layerIndex + 1,
+        id: correlation
+          ? `boundary-${left.id}-${right.id}-manual-${correlation.id}`
+          : `boundary-${left.id}-${right.id}-${ordinal}`,
+        ordinal,
+        leftOrdinal: leftLayer?.ordinal ?? null,
+        rightOrdinal: rightLayer?.ordinal ?? null,
         leftBoreholeId: left.id,
         rightBoreholeId: right.id,
         leftBoreholeName: left.name,
@@ -471,8 +498,37 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
         x2: right.drawing.x,
         y2: rightLayer && status === 'connected' ? drawingY(right, rightLayer.bottomDepth) : null,
         status,
-        manual: leftLayer?.depthSource === 'manual' || rightLayer?.depthSource === 'manual'
+        manual: leftLayer?.depthSource === 'manual' || rightLayer?.depthSource === 'manual',
+        manualCorrelation: Boolean(correlation),
+        correlationId: correlation?.id || null,
+        correlationNote: correlation?.note || ''
       })
+    }
+
+    for (const correlation of correlations) {
+      addItem(
+        left.layers.find(layer => layer.id === correlation.leftLayerId) || null,
+        right.layers.find(layer => layer.id === correlation.rightLayerId) || null,
+        correlation
+      )
+    }
+
+    const boundaryCount = Math.max(left.layers.length, right.layers.length)
+    for (let layerIndex = 0; layerIndex < boundaryCount; layerIndex += 1) {
+      const leftLayer = left.layers[layerIndex] || null
+      const rightLayer = right.layers[layerIndex] || null
+      const leftManual = Boolean(leftLayer && manualLeft.has(leftLayer.id))
+      const rightManual = Boolean(rightLayer && manualRight.has(rightLayer.id))
+      if (leftManual && rightManual) continue
+      if (leftManual) {
+        if (rightLayer) addItem(null, rightLayer)
+        continue
+      }
+      if (rightManual) {
+        if (leftLayer) addItem(leftLayer, null)
+        continue
+      }
+      addItem(leftLayer, rightLayer)
     }
   }
 
@@ -689,6 +745,37 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
   for (const [key, passport] of Object.entries(model.passports)) {
     if (key === '__unassigned__' || getIgeKey(key) !== key || passport.key !== key) {
       add({ kind: 'invalid-passport-key', passportKey: key, title: `Некорректный ключ паспорта ${key}`, detail: 'Ключ паспорта должен быть нормализованным непустым кодом ИГЭ и совпадать с ключом записи.' })
+    }
+  }
+
+  const correlationIds = new Set<string>()
+  const correlationPairs = new Set<string>()
+  const correlationLayers = new Set<string>()
+  for (const correlation of model.manualCorrelations) {
+    const leftOwner = layerOwners.get(correlation.leftLayerId)
+    const rightOwner = layerOwners.get(correlation.rightLayerId)
+    const pairKey = `${correlation.leftLayerId}|${correlation.rightLayerId}`
+    if (correlationIds.has(correlation.id) || correlationPairs.has(pairKey)) {
+      add({ kind: 'duplicate-correlation', title: 'Повтор ручной корреляции', detail: `Связь ${correlation.id} дублирует идентификатор или пару подошв.` })
+    }
+    correlationIds.add(correlation.id)
+    correlationPairs.add(pairKey)
+    if (!leftOwner || !rightOwner || leftOwner === rightOwner || !correlation.note.trim()) {
+      add({ kind: 'invalid-correlation', title: 'Некорректная ручная корреляция', detail: 'Обе подошвы должны существовать в разных скважинах, а инженерное обоснование не может быть пустым.' })
+      continue
+    }
+    const leftIndex = model.boreholes.findIndex(item => item.id === leftOwner)
+    const rightIndex = model.boreholes.findIndex(item => item.id === rightOwner)
+    if (leftIndex >= rightIndex) {
+      add({ kind: 'invalid-correlation', title: 'Нарушена ориентация ручной корреляции', detail: 'Левая подошва должна принадлежать скважине, расположенной левее по исходному порядку модели.' })
+    }
+    const ownerPair = `${leftOwner}|${rightOwner}`
+    for (const layerId of [correlation.leftLayerId, correlation.rightLayerId]) {
+      const useKey = `${ownerPair}|${layerId}`
+      if (correlationLayers.has(useKey)) {
+        add({ kind: 'duplicate-correlation', title: 'Конфликт ручных корреляций', detail: `Подошва ${layerId} уже использована в другой ручной связи этой пары скважин.` })
+      }
+      correlationLayers.add(useKey)
     }
   }
   return issues

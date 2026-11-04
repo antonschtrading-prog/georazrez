@@ -148,8 +148,9 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
           <g className="calculated-boundaries">
             {visible.boundaries.map(boundary => <line
               key={boundary.id}
-              className={`calculated-boundary ${boundary.manual ? 'manual' : ''}`}
+              className={`calculated-boundary ${boundary.manual ? 'manual' : ''} ${boundary.manualCorrelation ? 'manual-correlation' : ''}`}
               data-boundary={boundary.id}
+              data-correlation={boundary.correlationId || ''}
               data-left-layer={boundary.leftLayerId || ''}
               data-right-layer={boundary.rightLayerId || ''}
               x1={boundary.x1} y1={boundary.y1!} x2={boundary.x2} y2={boundary.y2!}

@@ -176,6 +176,7 @@
 .geo-lines { stroke: oklch(38% .015 95); stroke-width: .85; fill: none; pointer-events: none; }
 .calculated-boundaries { stroke: oklch(38% .015 95); stroke-width: .85; fill: none; pointer-events: none; }
 .calculated-boundary.manual { stroke: var(--info); stroke-width: 1.35; }
+.calculated-boundary.manual-correlation { stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 4 2; }
 .geo-circles { stroke: var(--ink-soft); stroke-width: .75; fill: var(--canvas-bg); pointer-events: none; }
 .geo-texts { fill: var(--ink-soft); font-family: 'IBM Plex Sans', sans-serif; font-size: 2.25px; dominant-baseline: middle; pointer-events: none; }
 .column-hit-area { fill: transparent; cursor: pointer; outline: none; }
@@ -249,9 +250,10 @@
 .boundary-summary { position: sticky; top: 0; z-index: 1; min-height: 34px; display: flex; align-items: center; gap: 18px; padding: 6px 13px; background: var(--gray-90); border-bottom: 1px solid var(--line); color: var(--muted-text); font-size: 9px; }
 .boundary-summary strong { color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
 .boundary-summary small { margin-left: auto; color: var(--muted-text); font-size: 9px; }
-.boundary-row { width: 100%; min-height: 47px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 13px; border: 0; border-bottom: 1px solid var(--gray-90); background: transparent; color: var(--ink); text-align: left; }
+.boundary-row { width: 100%; min-height: 47px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; padding-right: 8px; border-bottom: 1px solid var(--gray-90); background: transparent; color: var(--ink); text-align: left; }
 .boundary-row:hover { background: var(--gray-90); }
 .boundary-row.active { background: oklch(96.8% .21 116 / .3); box-shadow: inset 2px 0 0 var(--accent-dark); }
+.boundary-select { min-width: 0; min-height: 46px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 5px 7px 13px; border: 0; background: transparent; color: var(--ink); text-align: left; }
 .boundary-ordinal { color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-align: center; }
 .boundary-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .boundary-copy strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 500; white-space: nowrap; }
@@ -259,6 +261,13 @@
 .boundary-status { color: var(--muted-text); font-size: 9px; white-space: nowrap; }
 .boundary-row.left-only .boundary-status, .boundary-row.right-only .boundary-status { color: var(--warning); }
 .boundary-row.invalid .boundary-status { color: var(--danger); }
+.boundary-row.manual-correlation .boundary-status { color: var(--info); }
+.boundary-action { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-bg); color: var(--ink-soft); font-size: 9px; white-space: nowrap; }
+.boundary-action:hover { border-color: var(--accent-dark); background: var(--accent-lime); color: var(--ink); }
+.correlation-source { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 15px; padding: 10px; background: var(--gray-90); }
+.correlation-source span { color: var(--muted-text); font-size: 9px; }
+.correlation-source strong { font-size: 11px; font-weight: 500; }
+.correlation-note-label { margin-top: 14px; }
 
 .inspector-heading { align-items: center; }
 .source-badge { padding: 3px 6px; border-radius: 3px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; }
@@ -507,8 +516,9 @@
   .boundary-filter label { display: none; }
   .boundary-summary { gap: 10px; flex-wrap: wrap; }
   .boundary-summary small { width: 100%; margin-left: 0; }
-  .boundary-row { grid-template-columns: 24px minmax(0, 1fr); gap: 7px; }
+  .boundary-select { grid-template-columns: 32px minmax(0, 1fr); gap: 7px; }
   .boundary-status { grid-column: 2; }
+  .boundary-action { padding: 0 5px; font-size: 8px; }
   .issue-review-nav > span { display: none; }
   .issue-review-nav button { width: 23px; }
   .issue-filter select { max-width: 96px; }
