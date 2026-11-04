@@ -93,7 +93,12 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
     const top = view.cy + view.h / 2 + 10, bottom = view.cy - view.h / 2 - 10
     return {
       segments: project.geometry.segments.filter(s => Math.max(s.x1, s.x2) >= left && Math.min(s.x1, s.x2) <= right && Math.max(s.y1, s.y2) >= bottom && Math.min(s.y1, s.y2) <= top),
-      boundaries: boundaries.items.filter(item => item.status === 'connected' && item.y1 !== null && item.y2 !== null && Math.max(item.x1, item.x2) >= left && Math.min(item.x1, item.x2) <= right && Math.max(item.y1, item.y2) >= bottom && Math.min(item.y1, item.y2) <= top),
+      boundaries: boundaries.items.filter(item =>
+        (item.status === 'connected' || item.issues.some(issue => issue.kind === 'crossing')) &&
+        item.y1 !== null && item.y2 !== null && Number.isFinite(item.y1) && Number.isFinite(item.y2) &&
+        Math.max(item.x1, item.x2) >= left && Math.min(item.x1, item.x2) <= right &&
+        Math.max(item.y1, item.y2) >= bottom && Math.min(item.y1, item.y2) <= top
+      ),
       circles: project.geometry.circles.filter(c => c.x + c.r >= left && c.x - c.r <= right && c.y + c.r >= bottom && c.y - c.r <= top),
       texts: project.geometry.texts.filter(t => t.x >= left && t.x <= right && t.y >= bottom && t.y <= top),
       columns: project.columns.filter(c => c.x >= left && c.x <= right)
@@ -148,9 +153,10 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
           <g className="calculated-boundaries">
             {visible.boundaries.map(boundary => <line
               key={boundary.id}
-              className={`calculated-boundary ${boundary.manual ? 'manual' : ''} ${boundary.manualCorrelation ? 'manual-correlation' : ''}`}
+              className={`calculated-boundary ${boundary.manual ? 'manual' : ''} ${boundary.manualCorrelation ? 'manual-correlation' : ''} ${boundary.status === 'invalid' ? 'invalid' : ''} ${boundary.issues.some(issue => issue.kind === 'crossing') ? 'crossing' : ''}`}
               data-boundary={boundary.id}
               data-correlation={boundary.correlationId || ''}
+              data-issues={boundary.issues.map(issue => issue.kind).join(',')}
               data-left-layer={boundary.leftLayerId || ''}
               data-right-layer={boundary.rightLayerId || ''}
               x1={boundary.x1} y1={boundary.y1!} x2={boundary.x2} y2={boundary.y2!}

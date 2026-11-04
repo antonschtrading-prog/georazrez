@@ -128,7 +128,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Статус корреляции', key: 'status', width: 30 },
     { header: 'Основание корреляции', key: 'basis', width: 30 },
     { header: 'Инженерное обоснование', key: 'note', width: 48 },
-    { header: 'Источник глубин', key: 'source', width: 25 }
+    { header: 'Источник глубин', key: 'source', width: 25 },
+    { header: 'Контроль границы', key: 'issues', width: 60 }
   ]
   const boundaryModel = getCoreBoundaryModel(coreModel)
   for (const item of boundaryModel.items) {
@@ -145,17 +146,19 @@ export async function exportWorkbook(project: GeoProject) {
       rightCode: item.rightCode,
       status: item.status === 'connected' ? 'Соединена'
         : item.status === 'left-only' ? 'Нет парной подошвы справа'
-          : item.status === 'right-only' ? 'Нет парной подошвы слева' : 'Некорректная глубина или масштаб',
+          : item.status === 'right-only' ? 'Нет парной подошвы слева'
+            : item.issues.some(issue => issue.kind === 'crossing') ? 'Пересечение границ' : 'Некорректная граница',
       basis: item.manualCorrelation ? 'Ручная корреляция' : 'Одинаковый порядковый номер',
       note: item.correlationNote,
-      source: item.manual ? 'Есть ручная глубина' : 'Исходный DXF'
+      source: item.manual ? 'Есть ручная глубина' : 'Исходный DXF',
+      issues: item.issues.map(issue => issue.detail).join('; ')
     })
     row.getCell(7).numFmt = '0.00'
     row.getCell(8).numFmt = '0.00'
   }
   boundarySheet.getRow(1).font = { bold: true }
   boundarySheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  boundarySheet.autoFilter = { from: 'A1', to: 'N1' }
+  boundarySheet.autoFilter = { from: 'A1', to: 'O1' }
   boundarySheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')

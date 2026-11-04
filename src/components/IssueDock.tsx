@@ -21,11 +21,15 @@ interface Props {
 
 const formatDepth = (value: number) => value.toFixed(2).replace('.', ',')
 
-const boundaryStatus = (item: CoreBoundaryItem) => item.manualCorrelation
-  ? item.status === 'invalid' ? 'Ручная связь · некорректная глубина' : 'Соединена вручную'
-  : item.status === 'connected' ? 'Соединена'
-  : item.status === 'left-only' ? 'Нет подошвы справа'
-    : item.status === 'right-only' ? 'Нет подошвы слева' : 'Некорректная глубина'
+const boundaryStatus = (item: CoreBoundaryItem) => {
+  if (item.status === 'invalid') {
+    const crossing = item.issues.some(issue => issue.kind === 'crossing')
+    return `${item.manualCorrelation ? 'Ручная связь · ' : ''}${crossing ? 'Пересечение границ' : 'Некорректная граница'}`
+  }
+  if (item.manualCorrelation) return 'Соединена вручную'
+  if (item.status === 'connected') return 'Соединена'
+  return item.status === 'left-only' ? 'Нет подошвы справа' : 'Нет подошвы слева'
+}
 
 export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onRemoveCorrelation, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
@@ -130,10 +134,11 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
             const rightValue = item.rightDepth !== null ? `${formatDepth(item.rightDepth)} м${item.rightCode ? ` · ${item.rightCode}` : ''}` : '—'
             const active = item.leftLayerId === activeLayerId || item.rightLayerId === activeLayerId
             const isGap = item.status === 'left-only' || item.status === 'right-only'
-            return <div role="listitem" key={item.id} title={item.correlationNote || undefined} className={`boundary-row ${item.status} ${item.manualCorrelation ? 'manual-correlation' : ''} ${active ? 'active' : ''}`}>
+            const issueText = item.issues.map(issue => issue.detail).join('; ')
+            return <div role="listitem" key={item.id} title={[item.correlationNote, issueText].filter(Boolean).join(' · ') || undefined} className={`boundary-row ${item.status} ${item.manualCorrelation ? 'manual-correlation' : ''} ${active ? 'active' : ''}`}>
               <button type="button" className="boundary-select" onClick={() => onSelectBoundary(item)} aria-label={`Показать границу ${item.ordinal} между ${item.leftBoreholeName} и ${item.rightBoreholeName}`}>
                 <span className="boundary-ordinal">{item.manualCorrelation ? `${item.leftOrdinal}↔${item.rightOrdinal}` : item.ordinal}</span>
-                <span className="boundary-copy"><strong>{item.leftBoreholeName} → {item.rightBoreholeName}</strong><span>{leftValue} → {rightValue}</span></span>
+                <span className="boundary-copy"><strong>{item.leftBoreholeName} → {item.rightBoreholeName}</strong><span>{leftValue} → {rightValue}</span>{issueText && <span className="boundary-issues">{issueText}</span>}</span>
                 <span className="boundary-status">{boundaryStatus(item)}</span>
               </button>
               {item.manualCorrelation && item.correlationId

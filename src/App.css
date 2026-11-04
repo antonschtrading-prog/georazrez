@@ -177,6 +177,7 @@
 .calculated-boundaries { stroke: oklch(38% .015 95); stroke-width: .85; fill: none; pointer-events: none; }
 .calculated-boundary.manual { stroke: var(--info); stroke-width: 1.35; }
 .calculated-boundary.manual-correlation { stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 4 2; }
+.calculated-boundary.crossing { stroke: var(--danger); stroke-width: 2; stroke-dasharray: 2 2; }
 .geo-circles { stroke: var(--ink-soft); stroke-width: .75; fill: var(--canvas-bg); pointer-events: none; }
 .geo-texts { fill: var(--ink-soft); font-family: 'IBM Plex Sans', sans-serif; font-size: 2.25px; dominant-baseline: middle; pointer-events: none; }
 .column-hit-area { fill: transparent; cursor: pointer; outline: none; }
@@ -258,10 +259,13 @@
 .boundary-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .boundary-copy strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .boundary-copy > span { overflow: hidden; text-overflow: ellipsis; color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 9px; white-space: nowrap; }
+.boundary-copy > .boundary-issues { color: var(--danger); font-family: 'IBM Plex Sans', sans-serif; }
+.boundary-row.invalid { min-height: 60px; }
+.boundary-row.invalid .boundary-select { min-height: 59px; }
 .boundary-status { color: var(--muted-text); font-size: 9px; white-space: nowrap; }
 .boundary-row.left-only .boundary-status, .boundary-row.right-only .boundary-status { color: var(--warning); }
 .boundary-row.invalid .boundary-status { color: var(--danger); }
-.boundary-row.manual-correlation .boundary-status { color: var(--info); }
+.boundary-row.manual-correlation:not(.invalid) .boundary-status { color: var(--info); }
 .boundary-action { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-bg); color: var(--ink-soft); font-size: 9px; white-space: nowrap; }
 .boundary-action:hover { border-color: var(--accent-dark); background: var(--accent-lime); color: var(--ink); }
 .correlation-source { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 15px; padding: 10px; background: var(--gray-90); }

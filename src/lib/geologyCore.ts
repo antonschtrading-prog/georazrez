@@ -82,6 +82,12 @@ export interface CoreModel {
 }
 
 export type CoreBoundaryStatus = 'connected' | 'left-only' | 'right-only' | 'invalid'
+export type CoreBoundaryIssueKind = 'invalid-depth' | 'invalid-scale' | 'crossing'
+
+export interface CoreBoundaryIssue {
+  kind: CoreBoundaryIssueKind
+  detail: string
+}
 
 export interface CoreBoundaryItem {
   id: string
@@ -105,6 +111,7 @@ export interface CoreBoundaryItem {
   x2: number
   y2: number | null
   status: CoreBoundaryStatus
+  issues: CoreBoundaryIssue[]
   manual: boolean
   manualCorrelation: boolean
   correlationId: string | null
@@ -116,6 +123,7 @@ export interface CoreBoundaryModel {
   connected: number
   gaps: number
   invalid: number
+  crossings: number
 }
 
 export interface CoreDxfExtraction {
@@ -470,9 +478,17 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
       const rightIndex = rightLayer ? right.layers.findIndex(layer => layer.id === rightLayer.id) : -1
       const leftDepthIssue = leftLayer ? getCoreLayerDepthIssue(left.layers, leftIndex) : null
       const rightDepthIssue = rightLayer ? getCoreLayerDepthIssue(right.layers, rightIndex) : null
+      const scaleInvalid = !Number.isFinite(model.project.verticalScale) || model.project.verticalScale <= 0
+      const issues: CoreBoundaryIssue[] = []
+      if (leftLayer && rightLayer && (leftDepthIssue || rightDepthIssue)) {
+        issues.push({ kind: 'invalid-depth', detail: 'Некорректная глубина или нарушен порядок подошв' })
+      }
+      if (leftLayer && rightLayer && scaleInvalid) {
+        issues.push({ kind: 'invalid-scale', detail: 'Вертикальный масштаб должен быть положительным конечным числом' })
+      }
       const status: CoreBoundaryStatus = !leftLayer ? 'right-only'
         : !rightLayer ? 'left-only'
-          : leftDepthIssue || rightDepthIssue || !Number.isFinite(model.project.verticalScale) || model.project.verticalScale <= 0 ? 'invalid' : 'connected'
+          : issues.length ? 'invalid' : 'connected'
       const ordinal = leftLayer?.ordinal ?? rightLayer?.ordinal ?? 0
       items.push({
         id: correlation
@@ -498,6 +514,7 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
         x2: right.drawing.x,
         y2: rightLayer && status === 'connected' ? drawingY(right, rightLayer.bottomDepth) : null,
         status,
+        issues,
         manual: leftLayer?.depthSource === 'manual' || rightLayer?.depthSource === 'manual',
         manualCorrelation: Boolean(correlation),
         correlationId: correlation?.id || null,
@@ -505,6 +522,7 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
       })
     }
 
+    const pairStart = items.length
     for (const correlation of correlations) {
       addItem(
         left.layers.find(layer => layer.id === correlation.leftLayerId) || null,
@@ -530,13 +548,35 @@ export function getCoreBoundaryModel(model: CoreModel): CoreBoundaryModel {
       }
       addItem(leftLayer, rightLayer)
     }
+
+    const crossingDetails = new Map<number, CoreBoundaryIssue[]>()
+    const candidates = items.slice(pairStart).filter(item => item.status === 'connected')
+    for (let firstIndex = 0; firstIndex < candidates.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < candidates.length; secondIndex += 1) {
+        const first = candidates[firstIndex]
+        const second = candidates[secondIndex]
+        const orderProduct = (first.leftOrdinal! - second.leftOrdinal!) * (first.rightOrdinal! - second.rightOrdinal!)
+        if (orderProduct >= 0) continue
+        for (const [item, other] of [[first, second], [second, first]] as const) {
+          const itemIndex = items.findIndex(candidate => candidate.id === item.id)
+          const details = crossingDetails.get(itemIndex) || []
+          details.push({ kind: 'crossing', detail: `Пересечение с границей ${other.leftOrdinal}↔${other.rightOrdinal}` })
+          crossingDetails.set(itemIndex, details)
+        }
+      }
+    }
+    for (const [itemIndex, details] of crossingDetails) {
+      const item = items[itemIndex]
+      items[itemIndex] = { ...item, status: 'invalid', issues: [...item.issues, ...details] }
+    }
   }
 
   return {
     items,
     connected: items.filter(item => item.status === 'connected').length,
     gaps: items.filter(item => item.status === 'left-only' || item.status === 'right-only').length,
-    invalid: items.filter(item => item.status === 'invalid').length
+    invalid: items.filter(item => item.status === 'invalid').length,
+    crossings: items.filter(item => item.issues.some(issue => issue.kind === 'crossing')).length
   }
 }
 

@@ -1,4 +1,5 @@
 import {
+  getCoreBoundaryModel,
   getCoreIssues,
   type CoreBorehole,
   type CoreLayer,
@@ -253,6 +254,10 @@ export function setCoreBoreholeReviewed(
   if (!borehole.included) throw new Error('Исключённая колонка не подтверждается')
   if (reviewed && getCoreIssues(model).some(issue => issue.boreholeId === boreholeId)) {
     throw new Error('Сначала решите все проблемы этой скважины')
+  }
+  if (reviewed && getCoreBoundaryModel(model).items.some(item => item.status === 'invalid' &&
+    (item.leftBoreholeId === boreholeId || item.rightBoreholeId === boreholeId))) {
+    throw new Error('Сначала устраните некорректные границы корреляции этой скважины')
   }
   if (borehole.review.reviewed === reviewed) return model
   const next: CoreBorehole = {
