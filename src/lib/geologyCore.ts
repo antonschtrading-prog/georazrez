@@ -17,6 +17,7 @@ import {
   type SoilCharacteristicKey,
   type SoilCharacteristicRecord
 } from '@/types/geology'
+import { axisXY } from './geologyEngine'
 
 export const CORE_SCHEMA_VERSION = 1 as const
 
@@ -82,6 +83,33 @@ export interface CoreModel {
   passports: Record<string, CoreIgePassport>
 }
 
+export interface CoreDxfExtraction {
+  geo: GeoProject['geometry']
+  columns: {
+    x: number
+    sideTop: number
+    sideBottom: number
+    levels: number[]
+  }[]
+  names: string[]
+  depths: { excluded: Borehole['excluded'] }[]
+  codes: {
+    depth: number
+    ige: string
+    status: CodeStatus
+    candidates: CodeCandidate[]
+  }[][]
+}
+
+export interface CoreImportMetadata {
+  title: string
+  sourceFile: string
+  axisFile: string
+  horizontalScale?: number
+  verticalScale?: number
+  startPk?: number
+}
+
 export type CoreIssueKind =
   | 'invalid-scale'
   | 'invalid-axis'
@@ -123,6 +151,84 @@ const clonePassport = (key: string, passport: IgePassport): CoreIgePassport => (
   ),
   labTests: (passport.labTests || []).map(cloneTest)
 })
+
+/**
+ * Собирает каноническую модель сразу после извлечения DXF.
+ * Ручное исключение подписей здесь не включается: решение принадлежит конкретному проекту.
+ */
+export function createCoreModelFromExtraction(
+  extraction: CoreDxfExtraction,
+  axis: number[][],
+  metadata: CoreImportMetadata,
+  now = new Date()
+): CoreModel {
+  if (!extraction.columns.length) throw new Error('В разделе ENTITIES не найдены геологические колонки')
+  const horizontalScale = metadata.horizontalScale ?? 5000
+  const verticalScale = metadata.verticalScale ?? 100
+  const x0 = extraction.columns[0].x
+  const boreholes: CoreBorehole[] = extraction.columns.map((column, index) => {
+    const pk = (column.x - x0) * (horizontalScale / 1000)
+    const [coordX, coordY] = axisXY(axis, pk)
+    const sourceNamed = extraction.names[index] !== `Скв. ${index + 1}`
+    const id = `borehole-${index + 1}`
+    return {
+      id,
+      index: index + 1,
+      name: sourceNamed ? extraction.names[index] : `Без имени · №${index + 1}`,
+      sourceNamed,
+      drawing: {
+        x: column.x,
+        top: column.sideTop,
+        bottom: column.sideBottom,
+        levels: [...column.levels]
+      },
+      pk,
+      coordinates: coordX === null || coordY === null ? null : { x: coordX, y: coordY },
+      included: true,
+      exclusionReason: '',
+      review: { reviewed: false, reviewedAt: '' },
+      layers: extraction.codes[index].map((layer, layerIndex) => ({
+        id: `${id}-layer-${layerIndex + 1}`,
+        boreholeId: id,
+        ordinal: layerIndex + 1,
+        bottomDepth: layer.depth,
+        drawingY: column.sideTop - layer.depth * (1000 / verticalScale),
+        igeCode: layer.ige,
+        igeKey: layer.ige.trim() ? getIgeKey(layer.ige) : null,
+        codeStatus: layer.status,
+        candidates: layer.candidates.map(candidate => ({ ...candidate })),
+        codeSource: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки',
+        depthSource: 'dxf'
+      })),
+      excludedLabels: extraction.depths[index].excluded.map(label => ({ text: label.text, handle: label.handle, reason: label.reason }))
+    }
+  })
+  const segments = extraction.geo.segments.filter(segment => /ГЕОЛОГИЯ/i.test(segment.layer || ''))
+  const xs = segments.flatMap(segment => [segment.x1, segment.x2])
+  const ys = segments.flatMap(segment => [segment.y1, segment.y2])
+  return {
+    schemaVersion: CORE_SCHEMA_VERSION,
+    project: {
+      id: `local-${now.getTime()}`,
+      title: metadata.title,
+      sourceFile: metadata.sourceFile,
+      axisFile: metadata.axisFile,
+      horizontalScale,
+      verticalScale,
+      startPk: metadata.startPk ?? 0,
+      axis: axis.map(point => [...point]),
+      geometry: {
+        segments: segments.map(segment => ({ ...segment })),
+        circles: extraction.geo.circles.map(circle => ({ ...circle })),
+        texts: extraction.geo.texts.map(text => ({ ...text }))
+      },
+      bounds: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) },
+      activity: [{ id: `import-${now.getTime()}`, type: 'system', text: 'Проект сформирован локально из DXF и Excel', at: now.toLocaleString('ru-RU') }]
+    },
+    boreholes,
+    passports: {}
+  }
+}
 
 /**
  * Единственная точка перевода текущего проекта в каноническую модель.

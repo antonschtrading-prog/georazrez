@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
-import { audit, axisXY } from './geologyEngine'
-import { createCoreModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel } from './geologyCore'
+import { audit } from './geologyEngine'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel } from './geologyCore'
 import { formatPk, getIgeKey, getLabStatistics, getLabTestStatistics, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -64,56 +64,13 @@ export async function readAxisWorkbook(file: File): Promise<number[][]> {
 
 export async function createProjectFromFiles(dxfFile: File, axisFile: File): Promise<GeoProject> {
   const [content, axis] = await Promise.all([dxfFile.text(), readAxisWorkbook(axisFile)])
-  const result = audit(content, false)
-  if (!result.columns.length) throw new Error('В разделе ENTITIES не найдены геологические колонки')
-  const x0 = result.columns[0].x
-  const columns = result.columns.map((c: any, i: number) => {
-    const pk = (c.x - x0) * 5
-    const [coordX, coordY] = axisXY(axis, pk)
-    const sourceNamed = result.names[i] !== `Скв. ${i + 1}`
-    return {
-      id: `borehole-${i + 1}`,
-      index: i + 1,
-      name: sourceNamed ? result.names[i] : `Без имени · №${i + 1}`,
-      sourceNamed,
-      x: c.x,
-      top: c.sideTop,
-      bottom: c.sideBottom,
-      levels: c.levels,
-      pk,
-      coordX,
-      coordY,
-      layers: result.codes[i].map((layer: any, j: number) => ({
-        id: `borehole-${i + 1}-layer-${j + 1}`,
-        depth: layer.depth,
-        y: c.sideTop - layer.depth * 10,
-        ige: layer.ige,
-        status: layer.status,
-        candidates: layer.candidates,
-        source: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки',
-        depthSource: 'dxf'
-      })),
-      excluded: result.depths[i].excluded.map((e: any) => ({ text: e.text, handle: e.handle, reason: e.reason }))
-    }
-  })
-  const segments = result.geo.segments.filter((s: any) => /ГЕОЛОГИЯ/i.test(s.layer || ''))
-  const xs = segments.flatMap((s: any) => [s.x1, s.x2])
-  const ys = segments.flatMap((s: any) => [s.y1, s.y2])
-  return {
-    schemaVersion: 1,
-    id: `local-${Date.now()}`,
+  const extraction = audit(content, false)
+  const core = createCoreModelFromExtraction(extraction, axis, {
     title: dxfFile.name.replace(/\.dxf$/i, ''),
     sourceFile: dxfFile.name,
-    axisFile: axisFile.name,
-    horizontalScale: 5000,
-    verticalScale: 100,
-    startPk: 0,
-    axis,
-    columns,
-    geometry: { segments, circles: result.geo.circles, texts: result.geo.texts },
-    bounds: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) },
-    activity: [{ id: `import-${Date.now()}`, type: 'system', text: 'Проект сформирован локально из DXF и Excel', at: new Date().toLocaleString('ru-RU') }]
-  }
+    axisFile: axisFile.name
+  })
+  return createProjectFromCore(core)
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
