@@ -1,7 +1,6 @@
 import {
   getCharacteristicCoverage,
   getIgeKey,
-  getProjectLabIssues,
   type ActivityItem,
   type Borehole,
   type CodeCandidate,
@@ -10,7 +9,6 @@ import {
   type GeoIssue,
   type GeoProject,
   type IgePassport,
-  type LabTest,
   type LayerDepthIssue,
   type LayerNeighbor,
   type LayerNeighbors,
@@ -60,7 +58,6 @@ export interface CoreIgePassport {
   description: string
   notes: string
   characteristics: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
-  labTests: LabTest[]
 }
 
 export interface CoreModel {
@@ -119,9 +116,6 @@ export type CoreIssueKind =
   | 'depth-order'
   | 'invalid-coordinates'
   | 'invalid-passport-key'
-  | 'duplicate-test-id'
-  | 'unknown-test-borehole'
-  | 'unknown-test-layer'
 
 export interface CoreModelIssue {
   id: string
@@ -132,13 +126,7 @@ export interface CoreModelIssue {
   boreholeId?: string
   layerId?: string
   passportKey?: string
-  testId?: string
 }
-
-const cloneTest = (test: LabTest): LabTest => ({
-  ...test,
-  values: { ...test.values }
-})
 
 const clonePassport = (key: string, passport: IgePassport): CoreIgePassport => ({
   key,
@@ -147,8 +135,7 @@ const clonePassport = (key: string, passport: IgePassport): CoreIgePassport => (
   notes: passport.notes,
   characteristics: Object.fromEntries(
     Object.entries(passport.characteristics || {}).map(([property, record]) => [property, { ...record }])
-  ),
-  labTests: (passport.labTests || []).map(cloneTest)
+  )
 })
 
 /** Пикетаж вычисляется из исходной геометрии, без изменения координат DXF. */
@@ -388,8 +375,7 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
         notes: passport.notes,
         characteristics: Object.fromEntries(
           Object.entries(passport.characteristics).map(([property, record]) => [property, { ...record }])
-        ),
-        labTests: passport.labTests.map(cloneTest)
+        )
       }])
     ),
     activity: model.project.activity.map(item => ({ ...item }))
@@ -492,7 +478,6 @@ export function getCoreLayerNeighbors(model: CoreModel, boreholeId: string, laye
 export function getCoreCodeSummary(model: CoreModel): CodeSummaryItem[] {
   type Group = CodeSummaryItem & { boreholeIds: Set<string>; variantSet: Set<string>; targetHasIssue: boolean; thicknessSum: number }
   const groups = new Map<string, Group>()
-  const projectLabIssues = getProjectLabIssues(createProjectFromCore(model))
   for (const column of model.boreholes) {
     if (!column.included) continue
     for (const [layerIndex, layer] of column.layers.entries()) {
@@ -521,8 +506,6 @@ export function getCoreCodeSummary(model: CoreModel): CodeSummaryItem[] {
           issueCount: 0,
           characteristicFilled: characteristicCoverage.filled,
           characteristicTotal: characteristicCoverage.total,
-          labTestCount: passport?.labTests.length || 0,
-          labIssueCount: projectLabIssues.filter(issue => issue.code === key).length,
           boreholeId: column.id,
           layerId: layer.id,
           boreholeIds: new Set(),
@@ -564,8 +547,6 @@ export function getCoreCodeSummary(model: CoreModel): CodeSummaryItem[] {
     issueCount: group.issueCount,
     characteristicFilled: group.characteristicFilled,
     characteristicTotal: group.characteristicTotal,
-    labTestCount: group.labTestCount,
-    labIssueCount: group.labIssueCount,
     boreholeId: group.boreholeId,
     layerId: group.layerId
   })).sort((a, b) => {
@@ -597,7 +578,7 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
   const layerOwners = new Map<string, string>()
   for (const column of model.boreholes) {
     if (boreholeIds.has(column.id)) {
-      add({ kind: 'duplicate-borehole-id', boreholeId: column.id, title: `Повтор идентификатора скважины ${column.id}`, detail: 'Идентификаторы должны быть уникальны, иначе ссылки образцов и ручные решения нельзя считать однозначными.' })
+      add({ kind: 'duplicate-borehole-id', boreholeId: column.id, title: `Повтор идентификатора скважины ${column.id}`, detail: 'Идентификаторы должны быть уникальны, иначе ссылки на слои и ручные решения нельзя считать однозначными.' })
     }
     boreholeIds.add(column.id)
     if (column.coordinates && (!Number.isFinite(column.coordinates.x) || !Number.isFinite(column.coordinates.y))) {
@@ -617,22 +598,9 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     }
   }
 
-  const testIds = new Set<string>()
   for (const [key, passport] of Object.entries(model.passports)) {
     if (key === '__unassigned__' || getIgeKey(key) !== key || passport.key !== key) {
       add({ kind: 'invalid-passport-key', passportKey: key, title: `Некорректный ключ паспорта ${key}`, detail: 'Ключ паспорта должен быть нормализованным непустым кодом ИГЭ и совпадать с ключом записи.' })
-    }
-    for (const test of passport.labTests) {
-      if (testIds.has(test.id)) {
-        add({ kind: 'duplicate-test-id', passportKey: key, testId: test.id, title: `Повтор идентификатора испытания ${test.id}`, detail: 'Идентификатор испытания должен однозначно определять запись во всём проекте.' })
-      }
-      testIds.add(test.id)
-      if (test.boreholeId && !boreholeIds.has(test.boreholeId)) {
-        add({ kind: 'unknown-test-borehole', passportKey: key, testId: test.id, title: `${test.sample || 'Без номера'}: ссылка на скважину не найдена`, detail: `Идентификатор ${test.boreholeId} отсутствует в модели. Ссылка сохранена для ручной проверки.` })
-      }
-      if (test.layerId && layerOwners.get(test.layerId) !== test.boreholeId) {
-        add({ kind: 'unknown-test-layer', passportKey: key, testId: test.id, boreholeId: test.boreholeId, layerId: test.layerId, title: `${test.sample || 'Без номера'}: ссылка на слой не найдена`, detail: `Слой ${test.layerId} не принадлежит указанной скважине ${test.boreholeId || '—'}. Привязка не изменяется автоматически.` })
-      }
     }
   }
   return issues
@@ -642,7 +610,6 @@ export function getCoreModelStats(model: CoreModel) {
   return {
     boreholes: model.boreholes.length,
     layers: model.boreholes.reduce((sum, column) => sum + column.layers.length, 0),
-    passports: Object.keys(model.passports).length,
-    tests: Object.values(model.passports).reduce((sum, passport) => sum + passport.labTests.length, 0)
+    passports: Object.keys(model.passports).length
   }
 }

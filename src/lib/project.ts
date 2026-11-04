@@ -1,7 +1,7 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
 import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel } from './geologyCore'
-import { formatPk, getIgeKey, getLabStatistics, getLabTestStatistics, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
+import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -26,23 +26,6 @@ function numericCell(value: ExcelJS.CellValue): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
-}
-
-function textCell(value: ExcelJS.CellValue): string {
-  if (value === null || value === undefined) return ''
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (value instanceof Date) return value.toLocaleDateString('ru-RU')
-  if (typeof value === 'object') {
-    if ('richText' in value && Array.isArray(value.richText)) return value.richText.map(part => part.text).join('')
-    if ('text' in value && typeof value.text === 'string') return value.text
-    if ('result' in value) return textCell(value.result as ExcelJS.CellValue)
-  }
-  return ''
-}
-
-function normalizeHeader(value: ExcelJS.CellValue): string {
-  return textCell(value).trim().toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ')
 }
 
 export async function readAxisWorkbook(file: File): Promise<number[][]> {
@@ -80,126 +63,6 @@ function downloadBlob(blob: Blob, fileName: string) {
   anchor.download = fileName
   anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-export interface LabImportResult {
-  tests: LabTest[]
-  errors: string[]
-}
-
-export async function downloadLabTemplate(project: GeoProject, code: string) {
-  const { default: ExcelJS } = await import('exceljs')
-  const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'ГеоРазрез'
-  const sheet = workbook.addWorksheet('Испытания')
-  sheet.columns = [
-    { header: 'Номер образца', width: 24 },
-    { header: 'Скважина', width: 28 },
-    { header: 'Глубина, м', width: 16 },
-    { header: 'Отчёт / протокол', width: 44 },
-    ...SOIL_CHARACTERISTICS.map(property => ({ header: `${property.label}${property.unit !== '—' ? `, ${property.unit}` : ''}`, width: 25 }))
-  ]
-  sheet.getRow(1).font = { bold: true }
-  sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  sheet.views = [{ state: 'frozen', ySplit: 1 }]
-  const help = workbook.addWorksheet('Справка')
-  help.columns = [{ width: 28 }, { width: 90 }]
-  help.addRow(['ИГЭ для импорта', code])
-  help.addRow(['Обязательные поля', 'Номер образца, скважина, положительная глубина, источник и хотя бы одна характеристика'])
-  help.addRow(['Правило импорта', 'Файл принимается целиком. При любой ошибке в заполненных строках новые испытания не добавляются.'])
-  help.addRow(['Скважина', 'Укажите точное наименование из списка ниже или технический идентификатор.'])
-  help.addRow([])
-  help.addRow(['Доступные скважины', 'Технический идентификатор'])
-  for (const column of project.columns) help.addRow([column.name, column.id])
-  help.getRow(1).font = { bold: true }
-  help.getRow(6).font = { bold: true }
-  const buffer = await workbook.xlsx.writeBuffer()
-  downloadBlob(new Blob([buffer as any], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `ИГЭ ${code} — шаблон испытаний.xlsx`)
-}
-
-export async function readLabWorkbook(file: File, project: GeoProject, code: string): Promise<LabImportResult> {
-  const { default: ExcelJS } = await import('exceljs')
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(await file.arrayBuffer() as any)
-  const sheet = workbook.getWorksheet('Испытания') || workbook.getWorksheet('Испытания ИГЭ') || workbook.worksheets[0]
-  if (!sheet) return { tests: [], errors: ['В файле нет листов Excel.'] }
-  const key = getIgeKey(code)
-  const headers = new Map<string, number>()
-  for (let columnIndex = 1; columnIndex <= sheet.columnCount; columnIndex += 1) {
-    const header = normalizeHeader(sheet.getRow(1).getCell(columnIndex).value)
-    if (header) headers.set(header, columnIndex)
-  }
-  const requiredHeaders = ['Номер образца', 'Скважина', 'Глубина, м', 'Отчёт / протокол']
-  const errors = requiredHeaders.filter(header => !headers.has(normalizeHeader(header))).map(header => `Строка 1: не найден столбец «${header}».`)
-  if (errors.length) return { tests: [], errors }
-  const propertyColumns = SOIL_CHARACTERISTICS.map(property => ({
-    property,
-    columnIndex: headers.get(normalizeHeader(`${property.label}${property.unit !== '—' ? `, ${property.unit}` : ''}`)) || headers.get(normalizeHeader(property.label))
-  }))
-  const sampleColumn = headers.get(normalizeHeader('Номер образца'))!
-  const boreholeColumn = headers.get(normalizeHeader('Скважина'))!
-  const depthColumn = headers.get(normalizeHeader('Глубина, м'))!
-  const sourceColumn = headers.get(normalizeHeader('Отчёт / протокол'))!
-  const codeColumn = headers.get(normalizeHeader('Код ИГЭ'))
-  const layerColumn = headers.get(normalizeHeader('Конкретный слой'))
-  const existingSamples = new Set((project.igePassports?.[key]?.labTests || []).map(test => test.sample.trim().toLocaleUpperCase('ru-RU')).filter(Boolean))
-  const importedSamples = new Set<string>()
-  const tests: LabTest[] = []
-  for (let rowIndex = 2; rowIndex <= sheet.rowCount; rowIndex += 1) {
-    const row = sheet.getRow(rowIndex)
-    const rowValues = Array.from({ length: sheet.columnCount }, (_, index) => row.getCell(index + 1).value)
-    if (rowValues.every(value => !textCell(value).trim())) continue
-    if (codeColumn && getIgeKey(textCell(row.getCell(codeColumn).value)) !== key) continue
-    const prefix = `Строка ${rowIndex}`
-    const sample = textCell(row.getCell(sampleColumn).value).trim()
-    const normalizedSample = sample.toLocaleUpperCase('ru-RU')
-    if (!sample) errors.push(`${prefix}: не указан номер образца.`)
-    else if (existingSamples.has(normalizedSample)) errors.push(`${prefix}: образец «${sample}» уже существует для ИГЭ ${code}.`)
-    else if (importedSamples.has(normalizedSample)) errors.push(`${prefix}: номер образца «${sample}» повторяется в файле.`)
-    else importedSamples.add(normalizedSample)
-    const boreholeText = textCell(row.getCell(boreholeColumn).value).trim()
-    const normalizedBorehole = boreholeText.toLocaleUpperCase('ru-RU')
-    const boreholeMatches = boreholeText ? project.columns.filter(column => column.id === boreholeText || column.name.trim().toLocaleUpperCase('ru-RU') === normalizedBorehole) : []
-    const column = boreholeMatches.length === 1 ? boreholeMatches[0] : null
-    if (!boreholeText) errors.push(`${prefix}: не указана скважина.`)
-    else if (!boreholeMatches.length) errors.push(`${prefix}: скважина «${boreholeText}» не найдена в проекте.`)
-    else if (boreholeMatches.length > 1) errors.push(`${prefix}: наименование «${boreholeText}» соответствует нескольким скважинам; используйте технический идентификатор.`)
-    const depthText = textCell(row.getCell(depthColumn).value).trim()
-    const depth = numericCell(row.getCell(depthColumn).value)
-    if (!depthText) errors.push(`${prefix}: не указана глубина.`)
-    else if (depth === null || depth <= 0) errors.push(`${prefix}: глубина должна быть положительным конечным числом.`)
-    const source = textCell(row.getCell(sourceColumn).value).trim()
-    if (!source) errors.push(`${prefix}: не указан отчёт или протокол.`)
-    const values: LabTest['values'] = {}
-    for (const { property, columnIndex } of propertyColumns) {
-      if (!columnIndex) continue
-      const cellValue = row.getCell(columnIndex).value
-      if (!textCell(cellValue).trim()) continue
-      const value = numericCell(cellValue)
-      if (value === null) errors.push(`${prefix}: «${property.label}» не является конечным числом.`)
-      else values[property.key] = value
-    }
-    if (!Object.keys(values).length) errors.push(`${prefix}: не заполнено ни одной характеристики.`)
-    let layerId = ''
-    const layerText = layerColumn ? textCell(row.getCell(layerColumn).value).trim() : ''
-    if (layerText && column) {
-      const normalizedLayer = layerText.toLocaleUpperCase('ru-RU')
-      const layerIndex = column.layers.findIndex(layer => `Слой ${column.layers.indexOf(layer) + 1} · ${layer.ige || '—'} · подошва ${layer.depth.toFixed(2).replace('.', ',')} м`.toLocaleUpperCase('ru-RU') === normalizedLayer)
-      if (layerIndex >= 0) layerId = column.layers[layerIndex].id
-      else errors.push(`${prefix}: слой «${layerText}» не найден в скважине «${column.name}».`)
-    }
-    tests.push({
-      id: `lab-import-${Date.now()}-${rowIndex}-${Math.random()}`,
-      sample,
-      boreholeId: column?.id || '',
-      layerId,
-      depth,
-      source,
-      values
-    })
-  }
-  if (!tests.length && !errors.length) errors.push('В файле нет заполненных строк для выбранного ИГЭ.')
-  return { tests: errors.length ? [] : tests, errors }
 }
 
 export async function exportWorkbook(project: GeoProject) {
@@ -263,9 +126,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Средняя мощность, м', key: 'averageThickness', width: 21 },
     { header: 'Ручных решений', key: 'manual', width: 18 },
     { header: 'Нерешённых проблем', key: 'issues', width: 22 },
-    { header: 'Заполнено характеристик', key: 'characteristics', width: 25 },
-    { header: 'Лабораторных испытаний', key: 'labTests', width: 24 },
-    { header: 'Замечаний лаборатории', key: 'labIssues', width: 24 }
+    { header: 'Заполнено характеристик', key: 'characteristics', width: 25 }
   ]
   const summaryItems = getCoreCodeSummary(coreModel)
   for (const item of summaryItems) {
@@ -285,15 +146,13 @@ export async function exportWorkbook(project: GeoProject) {
       averageThickness: item.averageThickness,
       manual: item.manualCount,
       issues: item.issueCount,
-      characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`,
-      labTests: item.labTestCount,
-      labIssues: item.labIssueCount
+      characteristics: `${item.characteristicFilled} / ${item.characteristicTotal}`
     })
     for (let columnIndex = 8; columnIndex <= 12; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.00'
   }
   codeSummary.getRow(1).font = { bold: true }
   codeSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  codeSummary.autoFilter = { from: 'A1', to: 'Q1' }
+  codeSummary.autoFilter = { from: 'A1', to: 'O1' }
   codeSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
   const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
@@ -331,157 +190,6 @@ export async function exportWorkbook(project: GeoProject) {
   characteristics.autoFilter = { from: 'A1', to: 'H1' }
   characteristics.views = [{ state: 'frozen', ySplit: 1 }]
 
-  const labSheet = workbook.addWorksheet('Испытания ИГЭ')
-  labSheet.columns = [
-    { header: 'Код ИГЭ', key: 'code', width: 14 },
-    { header: 'Наименование ИГЭ', key: 'igeName', width: 28 },
-    { header: 'Номер образца', key: 'sample', width: 20 },
-    { header: 'Скважина', key: 'borehole', width: 24 },
-    { header: 'Конкретный слой', key: 'layer', width: 38 },
-    { header: 'Глубина, м', key: 'depth', width: 16 },
-    { header: 'Отчёт / протокол', key: 'source', width: 42 },
-    ...SOIL_CHARACTERISTICS.map(property => ({
-      header: `${property.label}${property.unit !== '—' ? `, ${property.unit}` : ''}`,
-      key: property.key,
-      width: 24
-    }))
-  ]
-  for (const item of summaryItems) {
-    if (item.key === '__unassigned__') continue
-    const passport = project.igePassports?.[item.key]
-    for (const test of passport?.labTests || []) {
-      const testColumn = project.columns.find(column => column.id === test.boreholeId)
-      const layerIndex = testColumn?.layers.findIndex(layer => layer.id === test.layerId) ?? -1
-      const linkedLayer = layerIndex >= 0 ? testColumn?.layers[layerIndex] : null
-      const rowData: Record<string, ExcelJS.CellValue> = {
-        code: item.code,
-        igeName: passport?.name || '',
-        sample: test.sample,
-        borehole: testColumn?.name || '',
-        layer: linkedLayer ? `Слой ${layerIndex + 1} · ${linkedLayer.ige || '—'} · подошва ${linkedLayer.depth.toFixed(2).replace('.', ',')} м` : '',
-        depth: test.depth,
-        source: test.source
-      }
-      for (const property of SOIL_CHARACTERISTICS) rowData[property.key] = test.values[property.key] ?? null
-      const row = labSheet.addRow(rowData)
-      row.getCell(6).numFmt = '0.00'
-      for (let columnIndex = 8; columnIndex <= 17; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
-    }
-  }
-  labSheet.getRow(1).font = { bold: true }
-  labSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  labSheet.autoFilter = { from: 'A1', to: 'Q1' }
-  labSheet.views = [{ state: 'frozen', ySplit: 1 }]
-
-  const labStats = workbook.addWorksheet('Статистика ИГЭ')
-  labStats.columns = [
-    { header: 'Код ИГЭ', key: 'code', width: 14 },
-    { header: 'Наименование ИГЭ', key: 'name', width: 28 },
-    { header: 'Группа', key: 'group', width: 20 },
-    { header: 'Характеристика', key: 'property', width: 38 },
-    { header: 'Единица', key: 'unit', width: 14 },
-    { header: 'n', key: 'count', width: 10 },
-    { header: 'Минимум', key: 'min', width: 16 },
-    { header: 'Максимум', key: 'max', width: 16 },
-    { header: 'Среднее арифметическое', key: 'mean', width: 26 }
-  ]
-  for (const item of summaryItems) {
-    if (item.key === '__unassigned__') continue
-    const passport = project.igePassports?.[item.key]
-    for (const statistic of getLabStatistics(passport)) {
-      const property = SOIL_CHARACTERISTICS.find(candidate => candidate.key === statistic.key)!
-      const row = labStats.addRow({
-        code: item.code,
-        name: passport?.name || '',
-        group: property.group,
-        property: property.label,
-        unit: property.unit,
-        count: statistic.count,
-        min: statistic.min,
-        max: statistic.max,
-        mean: statistic.mean
-      })
-      for (let columnIndex = 7; columnIndex <= 9; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
-    }
-  }
-  labStats.getRow(1).font = { bold: true }
-  labStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  labStats.autoFilter = { from: 'A1', to: 'I1' }
-  labStats.views = [{ state: 'frozen', ySplit: 1 }]
-
-  const labBoreholeStats = workbook.addWorksheet('Статистика по скважинам')
-  labBoreholeStats.columns = [
-    { header: 'Код ИГЭ', key: 'code', width: 14 },
-    { header: 'Наименование ИГЭ', key: 'name', width: 28 },
-    { header: 'Скважина', key: 'borehole', width: 26 },
-    { header: 'Группа', key: 'group', width: 20 },
-    { header: 'Характеристика', key: 'property', width: 38 },
-    { header: 'Единица', key: 'unit', width: 14 },
-    { header: 'n', key: 'count', width: 10 },
-    { header: 'Минимум', key: 'min', width: 16 },
-    { header: 'Максимум', key: 'max', width: 16 },
-    { header: 'Среднее арифметическое', key: 'mean', width: 26 }
-  ]
-  for (const item of summaryItems) {
-    if (item.key === '__unassigned__') continue
-    const passport = project.igePassports?.[item.key]
-    for (const column of project.columns) {
-      const tests = (passport?.labTests || []).filter(test => test.boreholeId === column.id)
-      if (!tests.length) continue
-      for (const statistic of getLabTestStatistics(tests)) {
-        const property = SOIL_CHARACTERISTICS.find(candidate => candidate.key === statistic.key)!
-        const row = labBoreholeStats.addRow({
-          code: item.code,
-          name: passport?.name || '',
-          borehole: column.name,
-          group: property.group,
-          property: property.label,
-          unit: property.unit,
-          count: statistic.count,
-          min: statistic.min,
-          max: statistic.max,
-          mean: statistic.mean
-        })
-        for (let columnIndex = 8; columnIndex <= 10; columnIndex += 1) row.getCell(columnIndex).numFmt = '0.000'
-      }
-    }
-  }
-  labBoreholeStats.getRow(1).font = { bold: true }
-  labBoreholeStats.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  labBoreholeStats.autoFilter = { from: 'A1', to: 'J1' }
-  labBoreholeStats.views = [{ state: 'frozen', ySplit: 1 }]
-
-  const labControl = workbook.addWorksheet('Контроль лаборатории')
-  labControl.columns = [
-    { header: 'Код ИГЭ', key: 'code', width: 14 },
-    { header: 'Образец', key: 'sample', width: 22 },
-    { header: 'Скважина', key: 'borehole', width: 26 },
-    { header: 'Глубина, м', key: 'depth', width: 16 },
-    { header: 'Тип замечания', key: 'kind', width: 28 },
-    { header: 'Замечание', key: 'title', width: 46 },
-    { header: 'Пояснение', key: 'detail', width: 80 },
-    { header: 'Отчёт / протокол', key: 'source', width: 42 }
-  ]
-  const projectLabIssues = getProjectLabIssues(project)
-  for (const issue of projectLabIssues) {
-    const test = project.igePassports?.[issue.code]?.labTests?.find(item => item.id === issue.testId)
-    const row = labControl.addRow({
-      code: issue.code,
-      sample: issue.sample,
-      borehole: project.columns.find(column => column.id === test?.boreholeId)?.name || '',
-      depth: test?.depth ?? null,
-      kind: LAB_ISSUE_LABELS[issue.kind],
-      title: issue.title,
-      detail: issue.detail,
-      source: test?.source || ''
-    })
-    row.getCell(4).numFmt = '0.00'
-  }
-  labControl.getRow(1).font = { bold: true }
-  labControl.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  labControl.autoFilter = { from: 'A1', to: 'H1' }
-  labControl.views = [{ state: 'frozen', ySplit: 1 }]
-
   const control = workbook.addWorksheet('Контроль колонок')
   control.columns = [
     { header: '№', key: 'index', width: 8 },
@@ -518,7 +226,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Серьёзность', key: 'severity', width: 16 },
     { header: 'Тип', key: 'kind', width: 28 },
     { header: 'Скважина', key: 'borehole', width: 26 },
-    { header: 'Слой / испытание', key: 'entity', width: 32 },
+    { header: 'Слой', key: 'entity', width: 32 },
     { header: 'Паспорт ИГЭ', key: 'passport', width: 20 },
     { header: 'Замечание', key: 'title', width: 48 },
     { header: 'Пояснение', key: 'detail', width: 90 }
@@ -529,7 +237,7 @@ export async function exportWorkbook(project: GeoProject) {
       severity: issue.severity === 'error' ? 'Ошибка' : 'Предупреждение',
       kind: issue.kind,
       borehole: project.columns.find(column => column.id === issue.boreholeId)?.name || issue.boreholeId || '',
-      entity: issue.layerId || issue.testId || '',
+      entity: issue.layerId || '',
       passport: issue.passportKey || '',
       title: issue.title,
       detail: issue.detail
@@ -574,17 +282,6 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
         Object.entries(passport.characteristics).some(([key, record]) =>
           !SOIL_CHARACTERISTICS.some(property => property.key === key) || !record ||
           !isNullableFiniteNumber(record.standard) || !isNullableFiniteNumber(record.design) || typeof record.source !== 'string'
-        )
-      )) ||
-      (passport.labTests !== undefined && (
-        !Array.isArray(passport.labTests) || passport.labTests.some(test =>
-          !test || typeof test.id !== 'string' || typeof test.sample !== 'string' || typeof test.boreholeId !== 'string' ||
-          (test.layerId !== undefined && typeof test.layerId !== 'string') ||
-          !isNullableFiniteNumber(test.depth) || typeof test.source !== 'string' ||
-          !test.values || typeof test.values !== 'object' || Array.isArray(test.values) ||
-          Object.entries(test.values).some(([key, value]) =>
-            !SOIL_CHARACTERISTICS.some(property => property.key === key) || typeof value !== 'number' || !Number.isFinite(value)
-          )
         )
       ))
     )

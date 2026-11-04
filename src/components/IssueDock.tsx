@@ -1,52 +1,33 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FlaskConical, History, Layers3, ListChecks, Search } from 'lucide-react'
-import type { ActivityItem, CodeSummaryItem, GeoIssue, IssueKind, LabRegistryItem } from '@/types/geology'
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks } from 'lucide-react'
+import type { ActivityItem, CodeSummaryItem, GeoIssue, IssueKind } from '@/types/geology'
 
 interface Props {
   issues: GeoIssue[]
   activity: ActivityItem[]
   codeSummary: CodeSummaryItem[]
-  labRegistry: LabRegistryItem[]
   activeIssueId: string | null
   activeCodeKey: string | null
-  activeLabTestId: string | null
   onSelect: (issue: GeoIssue) => void
   onSelectCode: (item: CodeSummaryItem) => void
-  onSelectLabTest: (item: LabRegistryItem) => void
   onStep: (direction: -1 | 1) => void
 }
 
 const formatDepth = (value: number) => value.toFixed(2).replace('.', ',')
 
-export function IssueDock({ issues, activity, codeSummary, labRegistry, activeIssueId, activeCodeKey, activeLabTestId, onSelect, onSelectCode, onSelectLabTest, onStep }: Props) {
-  const [tab, setTab] = useState<'issues' | 'codes' | 'lab' | 'activity'>('issues')
+export function IssueDock({ issues, activity, codeSummary, activeIssueId, activeCodeKey, onSelect, onSelectCode, onStep }: Props) {
+  const [tab, setTab] = useState<'issues' | 'codes' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | IssueKind>('all')
-  const [labQuery, setLabQuery] = useState('')
-  const [labFilter, setLabFilter] = useState<'all' | 'issues' | 'clean'>('all')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
-  const normalizedLabQuery = labQuery.trim().toLocaleLowerCase('ru-RU')
-  const filteredLabTests = labRegistry.filter(item => {
-    if (labFilter === 'issues' && !item.issues.length) return false
-    if (labFilter === 'clean' && item.issues.length) return false
-    if (!normalizedLabQuery) return true
-    const depth = item.test.depth === null ? '' : String(item.test.depth).replace('.', ',')
-    const haystack = [
-      item.code, item.passportName, item.test.sample, item.test.boreholeId,
-      item.boreholeName, item.test.layerId || '', item.layerLabel, depth,
-      item.test.source, ...item.issues.map(issue => `${issue.title} ${issue.detail}`)
-    ].join(' ').toLocaleLowerCase('ru-RU')
-    return haystack.includes(normalizedLabQuery)
-  })
   const activeIndex = issues.findIndex(issue => issue.id === activeIssueId)
 
   return (
-    <section className={`issue-dock ${collapsed ? 'collapsed' : ''} ${tab === 'lab' ? 'lab-open' : ''}`} aria-label="Проверка проекта">
+    <section className={`issue-dock ${collapsed ? 'collapsed' : ''}`} aria-label="Проверка проекта">
       <div className="issue-dock-header">
-        <div className="dock-tabs" role="tablist" aria-label="Проверка, сводка ИГЭ, лаборатория и журнал">
+        <div className="dock-tabs" role="tablist" aria-label="Проверка, сводка ИГЭ и журнал">
           <button type="button" role="tab" aria-selected={tab === 'issues'} className={tab === 'issues' ? 'active' : ''} onClick={() => { setTab('issues'); setCollapsed(false) }}><ListChecks size={15} /> Проверка <span>{issues.length}</span></button>
           <button type="button" role="tab" aria-selected={tab === 'codes'} className={tab === 'codes' ? 'active' : ''} onClick={() => { setTab('codes'); setCollapsed(false) }}><Layers3 size={15} /> ИГЭ <span>{codeSummary.length}</span></button>
-          <button type="button" role="tab" aria-selected={tab === 'lab'} aria-label="Лабораторный реестр" className={tab === 'lab' ? 'active' : ''} onClick={() => { setTab('lab'); setCollapsed(false) }}><FlaskConical size={15} /> Лаб. <span>{labRegistry.length}</span></button>
           <button type="button" role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'active' : ''} onClick={() => { setTab('activity'); setCollapsed(false) }}><History size={15} /> Журнал <span>{activity.length}</span></button>
         </div>
         {tab === 'issues' && !collapsed && <>
@@ -91,8 +72,6 @@ export function IssueDock({ issues, activity, codeSummary, labRegistry, activeIs
               <th>Вручную</th>
               <th>Проблемы</th>
               <th>Характеристики</th>
-              <th>Испытания</th>
-              <th>Лаб. контроль</th>
             </tr></thead>
             <tbody>{codeSummary.map(item => <tr key={item.key} className={item.key === activeCodeKey ? 'active' : ''}>
               <td>
@@ -108,34 +87,9 @@ export function IssueDock({ issues, activity, codeSummary, labRegistry, activeIs
               <td>{item.manualCount}</td>
               <td className={item.issueCount ? 'has-issues' : ''}>{item.issueCount}</td>
               <td title="Заполнено нормативных и расчётных значений">{item.characteristicFilled} / {item.characteristicTotal}</td>
-              <td>{item.labTestCount}</td>
-              <td className={item.labIssueCount ? 'has-issues' : ''} title="Замечания полноты и целостности лабораторных данных">{item.labIssueCount}</td>
             </tr>)}</tbody>
           </table>
           {!codeSummary.length && <div className="issue-empty">В активных скважинах нет слоёв.</div>}
-        </div>}
-        {tab === 'lab' && <div className="lab-registry">
-          <div className="lab-registry-toolbar">
-            <label className="lab-registry-search"><Search size={13} /><input value={labQuery} onChange={event => setLabQuery(event.target.value)} placeholder="Образец, скважина, ИГЭ или протокол" aria-label="Поиск по лабораторному реестру" /></label>
-            <select value={labFilter} onChange={event => setLabFilter(event.target.value as 'all' | 'issues' | 'clean')} aria-label="Фильтр лабораторных образцов">
-              <option value="all">Все образцы</option>
-              <option value="issues">С замечаниями</option>
-              <option value="clean">Без замечаний</option>
-            </select>
-            <span>Показано {filteredLabTests.length} из {labRegistry.length}</span>
-          </div>
-          <div className="lab-registry-list" role="list">
-            {filteredLabTests.map(item => {
-              const sample = item.test.sample.trim() || 'Без номера'
-              return <button type="button" role="listitem" key={`${item.key}-${item.test.id}`} className={`lab-registry-row ${item.issues.length ? 'has-issues' : ''} ${activeLabTestId === item.test.id ? 'active' : ''}`} onClick={() => onSelectLabTest(item)} aria-label={`Открыть образец ${sample}`}>
-                <span className="lab-registry-main"><strong>{sample}</strong><span>ИГЭ {item.code}{item.passportName ? ` · ${item.passportName}` : ''}</span></span>
-                <span className="lab-registry-location"><strong>{item.boreholeName}</strong><span>{item.test.depth === null ? 'Глубина не указана' : `${formatDepth(item.test.depth)} м`} · {item.layerLabel}</span></span>
-                <span className="lab-registry-source" title={item.test.source || 'Источник не указан'}>{item.test.source || 'Источник не указан'}</span>
-                <span className={`lab-registry-state ${item.issues.length ? 'has-issues' : 'clear'}`} title={item.issues.map(issue => issue.title).join('\n') || 'Замечаний контроля нет'}>{item.issues.length ? `${item.issues.length} замеч.` : 'Без замечаний'}</span>
-              </button>
-            })}
-            {!filteredLabTests.length && <div className="issue-empty">{labRegistry.length ? 'По текущему поиску и фильтру образцы не найдены.' : 'В проекте пока нет лабораторных образцов.'}</div>}
-          </div>
         </div>}
         {tab === 'activity' && <div className="activity-list">
           {activity.map(item => <div className="activity-row" key={item.id}>

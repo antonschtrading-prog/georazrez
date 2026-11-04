@@ -7,11 +7,11 @@ import { IssueDock } from '@/components/IssueDock'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { createProjectFromFiles, downloadLabTemplate, exportProjectFile, exportWorkbook, addActivity, readLabWorkbook, readProjectFile } from '@/lib/project'
+import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
 import { addCoreLayer, changeCoreLayerCode, changeCoreLayerDepth, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
-import { getIgeKey, getLabRegistry, getLabTestIssues, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getIgeKey, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -23,13 +23,6 @@ const PASSPORT_FIELD_LABELS = {
 const CHARACTERISTIC_FIELD_LABELS: Record<SoilCharacteristicField, string> = {
   standard: 'нормативное значение',
   design: 'расчётное значение',
-  source: 'источник'
-}
-const LAB_TEST_FIELD_LABELS: Record<LabTestField, string> = {
-  sample: 'номер образца',
-  boreholeId: 'скважина',
-  layerId: 'слой',
-  depth: 'глубина',
   source: 'источник'
 }
 
@@ -49,8 +42,6 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false)
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saved')
   const [mobilePanel, setMobilePanel] = useState<'list' | 'inspector' | null>(null)
-  const [activeLabTestId, setActiveLabTestId] = useState<string | null>(null)
-  const [labFocusToken, setLabFocusToken] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -84,7 +75,6 @@ export default function App() {
   const coreModel = useMemo(() => project ? createCoreModel(project) : null, [project])
   const issues = useMemo(() => coreModel ? getCoreIssues(coreModel) : [], [coreModel])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
-  const labRegistry = useMemo(() => project ? getLabRegistry(project) : [], [project])
   const coreReport = useMemo(() => coreModel ? {
     stats: getCoreModelStats(coreModel),
     issues: validateCoreModel(coreModel)
@@ -95,9 +85,6 @@ export default function App() {
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeCodeKey = selectedLayer ? getIgeKey(selectedLayer.ige) : null
   const selectedPassport = activeCodeKey && activeCodeKey !== '__unassigned__' ? project?.igePassports?.[activeCodeKey] || null : null
-  const selectedLabIssues = project && activeCodeKey && activeCodeKey !== '__unassigned__'
-    ? getLabTestIssues(project.columns, activeCodeKey, selectedPassport)
-    : []
   const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
     ? project.columns.reduce((sum, column) => sum + column.layers.filter(layer => getIgeKey(layer.ige) === activeCodeKey).length, 0)
     : 0
@@ -167,7 +154,6 @@ export default function App() {
   const selectBorehole = (id: string) => {
     setSelectedId(id)
     setSelectedLayerId(null)
-    setActiveLabTestId(null)
   }
 
   const selectIssue = (issue: GeoIssue) => {
@@ -175,7 +161,6 @@ export default function App() {
     setReviewIndex(index >= 0 ? index : null)
     setSelectedId(issue.boreholeId)
     setSelectedLayerId(issue.layerId || null)
-    setActiveLabTestId(null)
     setFocusToken(value => value + 1)
   }
 
@@ -184,34 +169,10 @@ export default function App() {
     setReviewIndex(issueIndex >= 0 ? issueIndex : null)
     setSelectedId(boreholeId)
     setSelectedLayerId(layerId)
-    setActiveLabTestId(null)
     setFocusToken(value => value + 1)
   }
 
   const selectCodeSummary = (item: CodeSummaryItem) => selectLayerLocation(item.boreholeId, item.layerId)
-
-  const selectLabRegistryItem = (item: LabRegistryItem) => {
-    if (!project) return
-    const linkedColumn = project.columns.find(column => column.id === item.test.boreholeId)
-    const linkedLayer = linkedColumn?.layers.find(layer => layer.id === item.test.layerId)
-    const linkedTarget = linkedLayer && getIgeKey(linkedLayer.ige) === item.key
-      ? linkedLayer
-      : linkedColumn?.layers.find(layer => getIgeKey(layer.ige) === item.key)
-    const fallbackColumn = project.columns.find(column => column.layers.some(layer => getIgeKey(layer.ige) === item.key))
-    const targetColumn = linkedTarget && linkedColumn ? linkedColumn : fallbackColumn
-    const targetLayer = linkedTarget || fallbackColumn?.layers.find(layer => getIgeKey(layer.ige) === item.key)
-    if (!targetColumn || !targetLayer) {
-      toast.error(`В проекте нет слоя с ИГЭ ${item.code}; образец остаётся в реестре без автоматических изменений`)
-      return
-    }
-    setReviewIndex(null)
-    setSelectedId(targetColumn.id)
-    setSelectedLayerId(targetLayer.id)
-    setActiveLabTestId(item.test.id)
-    setFocusToken(value => value + 1)
-    setLabFocusToken(value => value + 1)
-    setMobilePanel('inspector')
-  }
 
   const stepIssue = (direction: -1 | 1) => {
     if (!issues.length) return
@@ -290,94 +251,6 @@ export default function App() {
       }, `ИГЭ ${code}: ${SOIL_CHARACTERISTICS.find(item => item.key === property)?.label}, изменено поле «${CHARACTERISTIC_FIELD_LABELS[field]}»`)
     })
     toast.success(`Характеристика ИГЭ ${code} обновлена`)
-  }
-
-  const updateLabTests = (code: string, activityText: string, updater: (tests: LabTest[]) => LabTest[]) => {
-    const key = getIgeKey(code)
-    if (!project || key === '__unassigned__') return
-    commitProject(current => {
-      const previousPassport = current.igePassports?.[key] || { name: '', description: '', notes: '' }
-      const previousTests = previousPassport.labTests || []
-      const nextTests = updater(previousTests)
-      if (nextTests === previousTests) return current
-      return addActivity({
-        ...current,
-        igePassports: {
-          ...current.igePassports,
-          [key]: { ...previousPassport, labTests: nextTests }
-        },
-        columns: current.columns.map(column => column.layers.some(layer => getIgeKey(layer.ige) === key)
-          ? { ...column, isReviewed: false, reviewedAt: '' }
-          : column)
-      }, activityText)
-    })
-  }
-
-  const addLabTest = (code: string) => {
-    const test: LabTest = {
-      id: `lab-${Date.now()}-${Math.random()}`,
-      sample: '',
-      boreholeId: selected?.id || '',
-      layerId: '',
-      depth: null,
-      source: '',
-      values: {}
-    }
-    updateLabTests(code, `ИГЭ ${code}: добавлено лабораторное испытание`, tests => [...tests, test])
-    toast.success(`Испытание ИГЭ ${code} добавлено`)
-  }
-
-  const deleteLabTest = (code: string, testId: string) => {
-    const test = project?.igePassports?.[getIgeKey(code)]?.labTests?.find(item => item.id === testId)
-    updateLabTests(code, `ИГЭ ${code}: удалено испытание ${test?.sample.trim() || testId}`, tests => tests.filter(item => item.id !== testId))
-    toast.success('Испытание удалено; действие можно отменить')
-  }
-
-  const changeLabTest = (code: string, testId: string, field: LabTestField, value: string | number | null) => {
-    const normalizedValue = field === 'depth' ? typeof value === 'number' && Number.isFinite(value) ? value : null : String(value ?? '')
-    const previousTest = project?.igePassports?.[getIgeKey(code)]?.labTests?.find(test => test.id === testId)
-    const layerReset = field === 'boreholeId' && Boolean(previousTest?.layerId)
-    updateLabTests(code, `ИГЭ ${code}: изменено поле «${LAB_TEST_FIELD_LABELS[field]}» испытания${layerReset ? '; привязка к слою сброшена' : ''}`, tests => {
-      let changed = false
-      const next = tests.map(test => {
-        if (test.id !== testId || test[field] === normalizedValue) return test
-        changed = true
-        return field === 'boreholeId'
-          ? { ...test, boreholeId: String(normalizedValue ?? ''), layerId: '' }
-          : { ...test, [field]: normalizedValue }
-      })
-      return changed ? next : tests
-    })
-  }
-
-  const changeLabTestValue = (code: string, testId: string, property: SoilCharacteristicKey, value: number | null) => {
-    updateLabTests(code, `ИГЭ ${code}: изменено значение «${SOIL_CHARACTERISTICS.find(item => item.key === property)?.label}» в испытании`, tests => {
-      let changed = false
-      const next = tests.map(test => {
-        if (test.id !== testId || test.values[property] === value || (value === null && test.values[property] === undefined)) return test
-        changed = true
-        const values = { ...test.values }
-        if (value === null) delete values[property]
-        else values[property] = value
-        return { ...test, values }
-      })
-      return changed ? next : tests
-    })
-  }
-
-  const importLabTests = async (code: string, file: File) => {
-    if (!project) return { count: 0, errors: ['Проект ещё не загружен.'] }
-    const result = await readLabWorkbook(file, project, code)
-    if (result.errors.length) return { count: 0, errors: result.errors }
-    updateLabTests(code, `ИГЭ ${code}: импортировано испытаний из XLSX — ${result.tests.length}; файл ${file.name}`, tests => [...tests, ...result.tests])
-    toast.success(`Из XLSX импортировано испытаний: ${result.tests.length}`)
-    return { count: result.tests.length, errors: [] }
-  }
-
-  const exportLabTemplate = async (code: string) => {
-    if (!project) return
-    await downloadLabTemplate(project, code)
-    toast.success(`Шаблон для ИГЭ ${code} сформирован`)
   }
 
   const addLayer = (depth: number, code: string) => {
@@ -503,16 +376,16 @@ export default function App() {
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} labRegistry={labRegistry} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLabTestId={activeLabTestId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectLabTest={selectLabRegistryItem} onStep={stepIssue} />
+          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} onSelect={selectIssue} onSelectCode={selectCodeSummary} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} focusedLabTestId={activeLabTestId} labFocusToken={labFocusToken} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLabImport={importLabTests} onLabTemplate={exportLabTemplate} onLayerSelect={id => { setSelectedLayerId(id); setActiveLabTestId(null) }} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.21 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.21</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.22 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.22</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

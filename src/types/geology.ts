@@ -97,24 +97,11 @@ export interface SoilCharacteristicRecord {
   source: string
 }
 
-export type LabTestField = 'sample' | 'boreholeId' | 'layerId' | 'depth' | 'source'
-
-export interface LabTest {
-  id: string
-  sample: string
-  boreholeId: string
-  layerId?: string
-  depth: number | null
-  source: string
-  values: Partial<Record<SoilCharacteristicKey, number>>
-}
-
 export interface IgePassport {
   name: string
   description: string
   notes: string
   characteristics?: Partial<Record<SoilCharacteristicKey, SoilCharacteristicRecord>>
-  labTests?: LabTest[]
 }
 
 export interface GeoProject {
@@ -136,138 +123,6 @@ export interface GeoProject {
   bounds: { minX: number; maxX: number; minY: number; maxY: number }
   igePassports?: Record<string, IgePassport>
   activity: ActivityItem[]
-}
-
-export type LabIssueKind =
-  | 'missing-sample'
-  | 'duplicate-sample'
-  | 'missing-borehole'
-  | 'unknown-borehole'
-  | 'missing-depth'
-  | 'invalid-depth'
-  | 'depth-out-of-range'
-  | 'unknown-layer'
-  | 'layer-code-mismatch'
-  | 'layer-depth-mismatch'
-  | 'missing-source'
-  | 'empty-values'
-
-export interface LabDataIssue {
-  id: string
-  kind: LabIssueKind
-  code: string
-  testId: string
-  sample: string
-  title: string
-  detail: string
-}
-
-export const LAB_ISSUE_LABELS: Record<LabIssueKind, string> = {
-  'missing-sample': 'Нет номера образца',
-  'duplicate-sample': 'Повтор номера образца',
-  'missing-borehole': 'Не указана скважина',
-  'unknown-borehole': 'Скважина не найдена',
-  'missing-depth': 'Не указана глубина',
-  'invalid-depth': 'Некорректная глубина',
-  'depth-out-of-range': 'Глубже последней подошвы',
-  'unknown-layer': 'Слой не найден в скважине',
-  'layer-code-mismatch': 'ИГЭ слоя не совпадает',
-  'layer-depth-mismatch': 'Глубина вне интервала слоя',
-  'missing-source': 'Нет отчёта или протокола',
-  'empty-values': 'Нет значений характеристик'
-}
-
-export function getLabTestIssues(columns: Borehole[], code: string, passport: IgePassport | null | undefined): LabDataIssue[] {
-  const tests = passport?.labTests || []
-  const sampleCounts = new Map<string, number>()
-  for (const test of tests) {
-    const sample = test.sample.trim().toLocaleUpperCase('ru-RU')
-    if (sample) sampleCounts.set(sample, (sampleCounts.get(sample) || 0) + 1)
-  }
-  const issues: LabDataIssue[] = []
-  const add = (test: LabTest, kind: LabIssueKind, detail: string) => {
-    const sample = test.sample.trim() || 'Без номера'
-    issues.push({
-      id: `lab-${kind}-${test.id}`,
-      kind,
-      code,
-      testId: test.id,
-      sample,
-      title: `${sample}: ${LAB_ISSUE_LABELS[kind]}`,
-      detail
-    })
-  }
-  for (const test of tests) {
-    const normalizedSample = test.sample.trim().toLocaleUpperCase('ru-RU')
-    if (!normalizedSample) add(test, 'missing-sample', 'Укажите номер или обозначение образца из лабораторного документа.')
-    else if ((sampleCounts.get(normalizedSample) || 0) > 1) add(test, 'duplicate-sample', 'Такой номер уже используется для другого образца этого ИГЭ. Проверьте, не продублирована ли запись.')
-    const column = test.boreholeId ? columns.find(item => item.id === test.boreholeId) : null
-    if (!test.boreholeId) add(test, 'missing-borehole', 'Выберите скважину, из которой отобран образец.')
-    else if (!column) add(test, 'unknown-borehole', 'Ссылка на скважину отсутствует в текущем проекте. Выберите скважину вручную.')
-    if (test.depth === null) add(test, 'missing-depth', 'Укажите глубину отбора образца.')
-    else if (!Number.isFinite(test.depth) || test.depth <= 0) add(test, 'invalid-depth', 'Глубина отбора должна быть положительным конечным числом.')
-    else if (column?.layers.length) {
-      const maximumDepth = Math.max(...column.layers.map(layer => layer.depth).filter(Number.isFinite))
-      if (Number.isFinite(maximumDepth) && test.depth > maximumDepth) {
-        add(test, 'depth-out-of-range', `Глубина ${test.depth.toFixed(2).replace('.', ',')} м больше последней подошвы ${maximumDepth.toFixed(2).replace('.', ',')} м. Это предупреждение для ручной проверки, а не автоматическое исправление.`)
-      }
-    }
-    const linkedLayer = test.layerId ? column?.layers.find(layer => layer.id === test.layerId) : null
-    if (test.layerId && !linkedLayer) {
-      add(test, 'unknown-layer', 'Выбранный слой отсутствует в указанной скважине. Проверьте привязку вручную после изменения скважины или состава слоёв.')
-    } else if (linkedLayer && column) {
-      if (getIgeKey(linkedLayer.ige) !== code) {
-        add(test, 'layer-code-mismatch', `Образец относится к ИГЭ ${code}, а выбранный слой имеет код ${linkedLayer.ige || '—'}. Автоматическое изменение не выполняется.`)
-      }
-      const layerIndex = column.layers.findIndex(layer => layer.id === linkedLayer.id)
-      const topDepth = column.layers[layerIndex - 1]?.depth ?? 0
-      if (test.depth !== null && Number.isFinite(test.depth) && test.depth > 0 && Number.isFinite(topDepth) && Number.isFinite(linkedLayer.depth) && (test.depth <= topDepth || test.depth > linkedLayer.depth)) {
-        add(test, 'layer-depth-mismatch', `Интервал выбранного слоя: свыше ${topDepth.toFixed(2).replace('.', ',')} до ${linkedLayer.depth.toFixed(2).replace('.', ',')} м. Проверьте глубину или выберите другой слой вручную.`)
-      }
-    }
-    if (!test.source.trim()) add(test, 'missing-source', 'Укажите отчёт, протокол или другой источник результата.')
-    if (!SOIL_CHARACTERISTICS.some(property => Number.isFinite(test.values[property.key]))) {
-      add(test, 'empty-values', 'Для образца не заполнено ни одной характеристики.')
-    }
-  }
-  return issues
-}
-
-export function getProjectLabIssues(project: GeoProject): LabDataIssue[] {
-  return Object.entries(project.igePassports || {}).flatMap(([code, passport]) => getLabTestIssues(project.columns, code, passport))
-}
-
-export interface LabRegistryItem {
-  key: string
-  code: string
-  passportName: string
-  test: LabTest
-  boreholeName: string
-  layerLabel: string
-  issues: LabDataIssue[]
-}
-
-export function getLabRegistry(project: GeoProject): LabRegistryItem[] {
-  return Object.entries(project.igePassports || {}).flatMap(([key, passport]) => {
-    const passportIssues = getLabTestIssues(project.columns, key, passport)
-    const code = project.columns.flatMap(column => column.layers).find(layer => getIgeKey(layer.ige) === key)?.ige || key
-    return (passport.labTests || []).map(test => {
-      const column = project.columns.find(item => item.id === test.boreholeId)
-      const layerIndex = column?.layers.findIndex(layer => layer.id === test.layerId) ?? -1
-      const layer = layerIndex >= 0 ? column?.layers[layerIndex] : null
-      return {
-        key,
-        code,
-        passportName: passport.name,
-        test,
-        boreholeName: column?.name || (test.boreholeId ? `Не найдена · ${test.boreholeId}` : 'Не указана'),
-        layerLabel: layer
-          ? `Слой ${layerIndex + 1} · подошва ${layer.depth.toFixed(2).replace('.', ',')} м`
-          : test.layerId ? `Слой не найден · ${test.layerId}` : 'Не привязан к слою',
-        issues: passportIssues.filter(issue => issue.testId === test.id)
-      }
-    })
-  })
 }
 
 export type IssueKind = 'missing-name' | 'ambiguous-code' | 'missing-code' | 'invalid-depth' | 'depth-order'
@@ -306,33 +161,6 @@ export function getCharacteristicCoverage(passport: IgePassport | null | undefin
   return { filled, sourced, total: SOIL_CHARACTERISTICS.length * 2 }
 }
 
-export interface LabCharacteristicStatistic {
-  key: SoilCharacteristicKey
-  count: number
-  min: number | null
-  max: number | null
-  mean: number | null
-}
-
-export function getLabTestStatistics(tests: LabTest[]): LabCharacteristicStatistic[] {
-  return SOIL_CHARACTERISTICS.map(property => {
-    const values = tests
-      .map(test => test.values[property.key])
-      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    return {
-      key: property.key,
-      count: values.length,
-      min: values.length ? Math.min(...values) : null,
-      max: values.length ? Math.max(...values) : null,
-      mean: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
-    }
-  })
-}
-
-export function getLabStatistics(passport: IgePassport | null | undefined): LabCharacteristicStatistic[] {
-  return getLabTestStatistics(passport?.labTests || [])
-}
-
 export interface LayerNeighborMatch {
   layerId: string
   depth: number
@@ -368,8 +196,6 @@ export interface CodeSummaryItem {
   issueCount: number
   characteristicFilled: number
   characteristicTotal: number
-  labTestCount: number
-  labIssueCount: number
   boreholeId: string
   layerId: string
 }

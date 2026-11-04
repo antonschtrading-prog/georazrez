@@ -1,9 +1,8 @@
 import { useState, type FocusEvent } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { LabTests } from '@/components/LabTests'
 import { getCoreLayerDepthIssue, getCoreLayerThickness, type CoreBorehole } from '@/lib/geologyCore'
-import { formatPk, getCharacteristicCoverage, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type LabDataIssue, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { formatPk, getCharacteristicCoverage, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface Props {
   column: Borehole
@@ -15,16 +14,6 @@ interface Props {
   onNeighborSelect: (boreholeId: string, layerId: string) => void
   onPassportChange: (code: string, field: 'name' | 'description' | 'notes', value: string) => void
   onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
-  boreholes: { id: string; name: string; layers: { id: string; ige: string; depth: number }[] }[]
-  labIssues: LabDataIssue[]
-  focusedLabTestId: string | null
-  labFocusToken: number
-  onLabTestAdd: (code: string) => void
-  onLabTestDelete: (code: string, testId: string) => void
-  onLabTestChange: (code: string, testId: string, field: LabTestField, value: string | number | null) => void
-  onLabTestValueChange: (code: string, testId: string, property: SoilCharacteristicKey, value: number | null) => void
-  onLabImport: (code: string, file: File) => Promise<{ count: number; errors: string[] }>
-  onLabTemplate: (code: string) => Promise<void>
   onLayerSelect: (id: string) => void
   onLayerAdd: (depth: number, code: string) => void
   onLayerDelete: (layerId: string) => void
@@ -43,7 +32,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, coreColumn, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, focusedLabTestId, labFocusToken, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, coreColumn, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -275,7 +264,7 @@ export function Inspector({ column, coreColumn, selectedLayerId, igePassport, ig
             <div><h4>Характеристики грунта</h4><span>Нормативные и расчётные значения раздельно</span></div>
             <strong>{characteristicCoverage.filled} / {characteristicCoverage.total}</strong>
           </div>
-          <p className="characteristics-note">Значения не рассчитываются из других полей и не извлекаются из DXF. Указывайте источник лабораторных или принятых данных.</p>
+          <p className="characteristics-note">Значения не рассчитываются из других полей и не извлекаются из DXF. Указывайте источник принятых данных.</p>
           {characteristicError && <div className="import-error characteristic-error" role="alert">{characteristicError}</div>}
           {characteristicGroups.map(group => <section className="characteristic-group" key={group} aria-label={`${group} характеристики`}>
             <h4>{group}</h4>
@@ -317,23 +306,6 @@ export function Inspector({ column, coreColumn, selectedLayerId, igePassport, ig
             })}
           </section>)}
         </section>}
-
-        {selectedLayer && passportCode && <LabTests
-          key={passportCode}
-          code={passportCode}
-          passport={igePassport}
-          boreholes={boreholes}
-          issues={labIssues}
-          focusedTestId={focusedLabTestId}
-          focusToken={labFocusToken}
-          disabled={disabled}
-          onAdd={onLabTestAdd}
-          onDelete={onLabTestDelete}
-          onTestChange={onLabTestChange}
-          onValueChange={onLabTestValueChange}
-          onImport={onLabImport}
-          onTemplate={onLabTemplate}
-        />}
 
         {column.excluded.length > 0 && <details className="excluded-details">
           <summary>Исключённые подписи <span>{column.excluded.length}</span></summary>
