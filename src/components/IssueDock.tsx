@@ -1,33 +1,47 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, Spline } from 'lucide-react'
 import type { ActivityItem, CodeSummaryItem, GeoIssue, IssueKind } from '@/types/geology'
+import type { CoreBoundaryItem, CoreBoundaryModel } from '@/lib/geologyCore'
 
 interface Props {
   issues: GeoIssue[]
   activity: ActivityItem[]
   codeSummary: CodeSummaryItem[]
+  boundaries: CoreBoundaryModel
   activeIssueId: string | null
   activeCodeKey: string | null
+  activeLayerId: string | null
   onSelect: (issue: GeoIssue) => void
   onSelectCode: (item: CodeSummaryItem) => void
+  onSelectBoundary: (item: CoreBoundaryItem) => void
   onStep: (direction: -1 | 1) => void
 }
 
 const formatDepth = (value: number) => value.toFixed(2).replace('.', ',')
 
-export function IssueDock({ issues, activity, codeSummary, activeIssueId, activeCodeKey, onSelect, onSelectCode, onStep }: Props) {
-  const [tab, setTab] = useState<'issues' | 'codes' | 'activity'>('issues')
+const boundaryStatus = (item: CoreBoundaryItem) => item.status === 'connected' ? 'Соединена'
+  : item.status === 'left-only' ? 'Нет подошвы справа'
+    : item.status === 'right-only' ? 'Нет подошвы слева' : 'Некорректная глубина'
+
+export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onStep }: Props) {
+  const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | IssueKind>('all')
+  const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'all' | 'connected' | 'invalid'>('gaps')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
+  const filteredBoundaries = boundaries.items.filter(item => boundaryFilter === 'all'
+    || boundaryFilter === 'gaps' && (item.status === 'left-only' || item.status === 'right-only')
+    || boundaryFilter === 'connected' && item.status === 'connected'
+    || boundaryFilter === 'invalid' && item.status === 'invalid')
   const activeIndex = issues.findIndex(issue => issue.id === activeIssueId)
 
   return (
     <section className={`issue-dock ${collapsed ? 'collapsed' : ''}`} aria-label="Проверка проекта">
       <div className="issue-dock-header">
-        <div className="dock-tabs" role="tablist" aria-label="Проверка, сводка ИГЭ и журнал">
+        <div className="dock-tabs" role="tablist" aria-label="Проверка, сводка ИГЭ, корреляция границ и журнал">
           <button type="button" role="tab" aria-selected={tab === 'issues'} className={tab === 'issues' ? 'active' : ''} onClick={() => { setTab('issues'); setCollapsed(false) }}><ListChecks size={15} /> Проверка <span>{issues.length}</span></button>
           <button type="button" role="tab" aria-selected={tab === 'codes'} className={tab === 'codes' ? 'active' : ''} onClick={() => { setTab('codes'); setCollapsed(false) }}><Layers3 size={15} /> ИГЭ <span>{codeSummary.length}</span></button>
+          <button type="button" role="tab" aria-selected={tab === 'boundaries'} className={tab === 'boundaries' ? 'active' : ''} onClick={() => { setTab('boundaries'); setCollapsed(false) }}><Spline size={15} /> Границы <span>{boundaries.gaps + boundaries.invalid}</span></button>
           <button type="button" role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'active' : ''} onClick={() => { setTab('activity'); setCollapsed(false) }}><History size={15} /> Журнал <span>{activity.length}</span></button>
         </div>
         {tab === 'issues' && !collapsed && <>
@@ -48,6 +62,15 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
             </select>
           </div>
         </>}
+        {tab === 'boundaries' && !collapsed && <div className="boundary-filter">
+          <label htmlFor="boundary-kind">Показать</label>
+          <select id="boundary-kind" value={boundaryFilter} onChange={event => setBoundaryFilter(event.target.value as typeof boundaryFilter)}>
+            <option value="gaps">Разрывы корреляции</option>
+            <option value="all">Все границы</option>
+            <option value="connected">Соединённые</option>
+            <option value="invalid">Некорректные</option>
+          </select>
+        </div>}
         <button type="button" className="dock-collapse" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Развернуть панель' : 'Свернуть панель'}>
           {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -90,6 +113,25 @@ export function IssueDock({ issues, activity, codeSummary, activeIssueId, active
             </tr>)}</tbody>
           </table>
           {!codeSummary.length && <div className="issue-empty">В активных скважинах нет слоёв.</div>}
+        </div>}
+        {tab === 'boundaries' && <div className="boundary-list" role="list">
+          <div className="boundary-summary">
+            <span><strong>{boundaries.connected}</strong> соединено</span>
+            <span><strong>{boundaries.gaps}</strong> разрывов</span>
+            <span><strong>{boundaries.invalid}</strong> некорректных</span>
+            <small>Одинаковый номер подошвы · без автоматического выклинивания</small>
+          </div>
+          {filteredBoundaries.map(item => {
+            const leftValue = item.leftDepth !== null ? `${formatDepth(item.leftDepth)} м${item.leftCode ? ` · ${item.leftCode}` : ''}` : '—'
+            const rightValue = item.rightDepth !== null ? `${formatDepth(item.rightDepth)} м${item.rightCode ? ` · ${item.rightCode}` : ''}` : '—'
+            const active = item.leftLayerId === activeLayerId || item.rightLayerId === activeLayerId
+            return <button type="button" role="listitem" key={item.id} className={`boundary-row ${item.status} ${active ? 'active' : ''}`} onClick={() => onSelectBoundary(item)} aria-label={`Показать границу ${item.ordinal} между ${item.leftBoreholeName} и ${item.rightBoreholeName}`}>
+              <span className="boundary-ordinal">{item.ordinal}</span>
+              <span className="boundary-copy"><strong>{item.leftBoreholeName} → {item.rightBoreholeName}</strong><span>{leftValue} → {rightValue}</span></span>
+              <span className="boundary-status">{boundaryStatus(item)}</span>
+            </button>
+          })}
+          {!filteredBoundaries.length && <div className="issue-empty">В этой категории границ нет.</div>}
         </div>}
         {tab === 'activity' && <div className="activity-list">
           {activity.map(item => <div className="activity-row" key={item.id}>
