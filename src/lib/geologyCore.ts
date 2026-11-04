@@ -194,11 +194,14 @@ export interface CoreBoundaryModel {
   inactiveGapDecisions: CoreInactiveGapDecision[]
 }
 
-/** Одна задача проекта: геологическая проблема или одна некорректная граница. */
+export type CoreInterpolationIssueKind = 'fictitious-outdated' | 'fictitious-invalid'
+export type CoreReviewKind = IssueKind | 'invalid-boundary' | CoreInterpolationIssueKind
+
+/** Одна задача проекта: исходная геология, граница или производное правило. */
 export interface CoreReviewItem {
   id: string
-  source: 'geology' | 'boundary'
-  kind: IssueKind | 'invalid-boundary'
+  source: 'geology' | 'boundary' | 'interpolation'
+  kind: CoreReviewKind
   boreholeId: string
   layerId?: string
   boundaryId?: string
@@ -572,6 +575,34 @@ export function getCoreLayerThickness(layers: CoreLayer[], index: number): numbe
 }
 
 /**
+ * Контрольный слепок только тех данных источников, которые участвуют в расчёте.
+ * Это не вторая геометрия разреза: подписи DXF и исходные объекты сюда не копируются.
+ */
+export function getCoreFictitiousSourceFingerprint(
+  model: CoreModel,
+  leftBoreholeId: string,
+  rightBoreholeId: string
+): string {
+  return JSON.stringify([leftBoreholeId, rightBoreholeId].map(id => {
+    const column = model.boreholes.find(item => item.id === id)
+    return column ? {
+      id: column.id,
+      included: column.included,
+      x: column.drawing.x,
+      top: column.drawing.top,
+      bottom: column.drawing.bottom,
+      pk: column.pk,
+      layers: column.layers.map(layer => ({
+        ordinal: layer.ordinal,
+        depth: layer.bottomDepth,
+        drawingY: layer.drawingY,
+        code: layer.igeKey ?? getIgeKey(layer.igeCode)
+      }))
+    } : null
+  }))
+}
+
+/**
  * Предварительный расчёт фиктивной скважины. Ничего не сохраняет и не выбирает
  * между разными кодами ИГЭ: расхождение остаётся видимым для ручного решения.
  */
@@ -935,6 +966,56 @@ export function getCoreIssues(model: CoreModel): GeoIssue[] {
 }
 
 /**
+ * Проверка правил не меняет производные слои. Ручные глубины и коды фиктивной
+ * скважины не считаются устаревшими: задача возникает только при смене источников.
+ */
+export function getCoreInterpolationReviewItems(model: CoreModel): CoreReviewItem[] {
+  const items: CoreReviewItem[] = []
+  for (const column of model.boreholes) {
+    if (!column.included || column.kind !== 'fictitious' || !column.interpolation) continue
+    const rule = column.interpolation
+    let preview: CoreFictitiousPreview
+    try {
+      preview = getCoreFictitiousPreview(model, rule.leftBoreholeId, rule.rightBoreholeId, rule.fraction)
+    } catch (reason) {
+      items.push({
+        id: `interpolation-invalid-${column.id}`,
+        source: 'interpolation',
+        kind: 'fictitious-invalid',
+        boreholeId: column.id,
+        title: `${column.name}: правило интерполяции недействительно`,
+        detail: `${reason instanceof Error ? reason.message : 'Не удалось выполнить preview'}. Модель не изменена; проверьте источники или удалите фиктивную явной командой.`
+      })
+      continue
+    }
+    const currentFingerprint = getCoreFictitiousSourceFingerprint(model, rule.leftBoreholeId, rule.rightBoreholeId)
+    // Проекты 0.36 без слепка проверяются консервативно по ещё интерполированным полям.
+    const legacyOutdated = rule.sourceFingerprint === undefined && (
+      column.drawing.x !== preview.x || column.drawing.top !== preview.top ||
+      column.drawing.bottom !== preview.bottom || column.pk !== preview.pk ||
+      preview.layers.some(expected => {
+        const saved = column.layers.find(layer => layer.id === `${column.id}-layer-${expected.ordinal}`)
+        if (!saved || saved.depthSource !== 'interpolated') return false
+        const expectedStatus = expected.codeAgreed ? 'interpolated' : expected.leftCode && expected.rightCode ? 'ambiguous' : 'not-found'
+        return saved.bottomDepth !== expected.depth ||
+          (saved.codeStatus !== 'manual' && (saved.igeCode !== expected.code || saved.codeStatus !== expectedStatus))
+      })
+    )
+    if (rule.sourceFingerprint !== undefined && rule.sourceFingerprint !== currentFingerprint || legacyOutdated) {
+      items.push({
+        id: `interpolation-outdated-${column.id}`,
+        source: 'interpolation',
+        kind: 'fictitious-outdated',
+        boreholeId: column.id,
+        title: `${column.name}: источники интерполяции изменились`,
+        detail: 'Сохранённые положение, глубины или коды могут не соответствовать текущим исходным скважинам. Автоматический пересчёт не выполнен: откройте правило, проверьте preview и подтвердите пересчёт.'
+      })
+    }
+  }
+  return items
+}
+
+/**
  * Общая очередь не дублирует общую границу для каждой скважины.
  * Обычные разрывы не являются ошибками и сюда не включаются.
  */
@@ -961,7 +1042,34 @@ export function getCoreReviewItems(
         : `${item.leftBoreholeName} → ${item.rightBoreholeName}: некорректная граница`,
       detail: `Подошвы ${item.leftOrdinal ?? '—'} ↔ ${item.rightOrdinal ?? '—'}: ${item.issues.map(issue => issue.detail).join('; ')}`
     }))
-  return [...geological, ...invalidBoundaries]
+  return [...geological, ...invalidBoundaries, ...getCoreInterpolationReviewItems(model)]
+}
+
+export interface CoreSectionReport {
+  items: CoreReviewItem[]
+  geological: number
+  boundaries: number
+  interpolation: number
+  openGaps: number
+  decidedGaps: number
+  consistent: boolean
+}
+
+/** Единый производный отчёт сечения; открытые разрывы показаны отдельно от ошибок. */
+export function getCoreSectionReport(
+  model: CoreModel,
+  boundaries = getCoreBoundaryModel(model)
+): CoreSectionReport {
+  const items = getCoreReviewItems(model, boundaries)
+  return {
+    items,
+    geological: items.filter(item => item.source === 'geology').length,
+    boundaries: items.filter(item => item.source === 'boundary').length,
+    interpolation: items.filter(item => item.source === 'interpolation').length,
+    openGaps: boundaries.openGaps,
+    decidedGaps: boundaries.decidedGaps,
+    consistent: items.length === 0
+  }
 }
 
 /** Соседи выбираются только среди активных колонок; совпадения не ранжируются по глубине. */
@@ -1123,6 +1231,7 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
       const right = model.boreholes[rightIndex]
       const pairKey = rule ? `${rule.leftBoreholeId}|${rule.rightBoreholeId}` : ''
       const validRule = Boolean(rule && rule.method === 'linear' && rule.note.trim() && rule.createdAt &&
+        (rule.sourceFingerprint === undefined || Boolean(rule.sourceFingerprint.trim())) &&
         Number.isFinite(rule.fraction) && rule.fraction > 0 && rule.fraction < 1 &&
         left?.kind === 'dxf' && right?.kind === 'dxf' && leftIndex >= 0 && leftIndex < rightIndex &&
         !model.boreholes.slice(leftIndex + 1, rightIndex).some(item => item.kind === 'dxf') &&

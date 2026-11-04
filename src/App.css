@@ -228,12 +228,19 @@
 .dock-collapse { width: 36px; height: 36px; margin-left: 5px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted-text); }
 .dock-collapse:hover { color: var(--ink); background: var(--gray-90); }
 .issue-dock-body { flex: 1; min-height: 0; overflow: hidden; }
+.issue-review-content { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.section-review-summary { flex: none; display: flex; align-items: center; gap: 18px; min-height: 31px; padding: 5px 13px; border-bottom: 1px solid var(--line); background: var(--gray-90); color: var(--muted-text); font-size: 9px; }
+.section-review-summary span { white-space: nowrap; }
+.section-review-summary strong { margin-right: 4px; color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+.section-review-summary small { margin-left: auto; color: var(--muted-text); font-size: 9px; }
+.issue-review-content .issue-table { flex: 1; min-height: 0; }
 .issue-table, .activity-list { height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--gray-70) transparent; }
 .issue-row { width: 100%; min-height: 47px; display: flex; align-items: center; gap: 10px; padding: 7px 13px; border: 0; border-bottom: 1px solid var(--gray-90); background: transparent; color: var(--ink); text-align: left; }
 .issue-row:hover { background: var(--gray-90); }
 .issue-row.active { background: oklch(96.8% .21 116 / .3); box-shadow: inset 2px 0 0 var(--accent-dark); }
 .issue-icon { flex: none; color: var(--warning); }
-.issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order, .issue-icon.invalid-boundary { color: var(--danger); }
+.issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order, .issue-icon.invalid-boundary, .issue-icon.fictitious-invalid { color: var(--danger); }
+.issue-icon.fictitious-outdated { color: var(--info); }
 .issue-icon.missing-name { color: var(--info); }
 .issue-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-copy strong { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -598,6 +605,8 @@
   .issue-review-nav button { width: 23px; }
   .issue-filter select { max-width: 96px; }
   .issue-action { display: none; }
+  .section-review-summary { gap: 9px; padding-inline: 9px; flex-wrap: wrap; }
+  .section-review-summary small { display: none; }
   .issue-copy strong, .issue-copy span { white-space: normal; line-height: 1.3; }
   .app-statusbar { padding: 0 8px; font-size: 8px; }
   .app-statusbar > span:last-child { display: none; }

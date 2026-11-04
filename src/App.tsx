@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreReviewItems, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
+import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, getCoreSectionReport, validateCoreModel, type CoreBoundaryItem, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
 import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
@@ -88,9 +88,10 @@ export default function App() {
 
   const issues = useMemo(() => coreModel ? getCoreIssues(coreModel) : [], [coreModel])
   const boundaries = useMemo(() => coreModel ? getCoreBoundaryModel(coreModel) : null, [coreModel])
-  const reviewItems = useMemo(() => coreModel && boundaries
-    ? getCoreReviewItems(coreModel, boundaries)
-    : [], [coreModel, boundaries])
+  const sectionReport = useMemo(() => coreModel && boundaries
+    ? getCoreSectionReport(coreModel, boundaries)
+    : null, [coreModel, boundaries])
+  const reviewItems = useMemo(() => sectionReport?.items || [], [sectionReport])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
   const coreReport = useMemo(() => coreModel ? {
     stats: getCoreModelStats(coreModel),
@@ -100,6 +101,9 @@ export default function App() {
   const selectedCore = coreModel?.boreholes.find(column => column.id === selected?.id) || null
   const selectedBoundaryIssues = boundaries && selectedCore
     ? getCoreBoreholeBoundaryIssues(boundaries, selectedCore.id)
+    : []
+  const selectedInterpolationIssues = selectedCore
+    ? reviewItems.filter(item => item.source === 'interpolation' && item.boreholeId === selectedCore.id)
     : []
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const indexedReview = reviewIndex !== null ? reviewItems[reviewIndex] : null
@@ -153,6 +157,7 @@ export default function App() {
     }
   }, [coreModel, fictitiousLeft, fictitiousRight, parsedFictitiousFraction])
   const fictitiousUnchanged = Boolean(editingFictitious?.interpolation && fictitiousPreview.data &&
+    !reviewItems.some(item => item.source === 'interpolation' && item.boreholeId === editingFictitiousId) &&
     editingFictitious.interpolation.fraction === parsedFictitiousFraction &&
     editingFictitious.interpolation.note === fictitiousNote.trim() &&
     editingFictitious.drawing.x === fictitiousPreview.data.x &&
@@ -613,13 +618,13 @@ export default function App() {
           <IssueDock issues={reviewItems} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onDecideGap={openGapDecision} onEditInactiveGapDecision={openInactiveGapDecision} onRemoveGapDecision={removeGapDecision} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} fictitiousSources={fictitiousSources} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} onEditFictitious={() => openFictitiousEdit(selectedCore.id)} onDeleteFictitious={deleteFictitious} />}
+        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} interpolationIssues={selectedInterpolationIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} fictitiousSources={fictitiousSources} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} onEditFictitious={() => openFictitiousEdit(selectedCore.id)} onDeleteFictitious={deleteFictitious} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.36 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.36</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.37 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.37</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">

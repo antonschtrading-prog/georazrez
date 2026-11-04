@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreReviewItems, validateCoreModel, type CoreModel } from './geologyCore'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -26,7 +26,8 @@ function isValidInterpolation(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const rule = value as Record<string, unknown>
   return rule.method === 'linear' && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
-    typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string'
+    typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string' &&
+    (rule.sourceFingerprint === undefined || typeof rule.sourceFingerprint === 'string')
 }
 
 function numericCell(value: ExcelJS.CellValue): number | null {
@@ -187,6 +188,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ID решения по разрыву', key: 'gapDecisionId', width: 42 }
   ]
   const boundaryModel = getCoreBoundaryModel(coreModel)
+  const interpolationReviewItems = getCoreInterpolationReviewItems(coreModel)
   const interpolatedLayerIds = new Set(coreModel.boreholes.flatMap(column => column.layers.filter(layer => layer.depthSource === 'interpolated').map(layer => layer.id)))
   for (const item of boundaryModel.items) {
     const row = boundarySheet.addRow({
@@ -284,12 +286,17 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'ИГЭ', key: 'code', width: 16 },
     { header: 'Статус ИГЭ', key: 'status', width: 28 },
     { header: 'X', key: 'x', width: 18 },
-    { header: 'Y', key: 'y', width: 18 }
+    { header: 'Y', key: 'y', width: 18 },
+    { header: 'Состояние правила', key: 'ruleState', width: 32 }
   ]
   for (const column of coreModel.boreholes.filter(item => item.kind === 'fictitious')) {
     const rule = column.interpolation
     const left = coreModel.boreholes.find(item => item.id === rule?.leftBoreholeId)
     const right = coreModel.boreholes.find(item => item.id === rule?.rightBoreholeId)
+    const ruleIssue = interpolationReviewItems.find(item => item.boreholeId === column.id)
+    const ruleState = ruleIssue?.kind === 'fictitious-invalid' ? 'Правило недействительно'
+      : ruleIssue?.kind === 'fictitious-outdated' ? 'Источники изменены · требуется явный пересчёт'
+        : 'Актуально на момент последнего подтверждения'
     for (const layer of column.layers) {
       const row = fictitiousSheet.addRow({
         id: column.id,
@@ -306,7 +313,8 @@ export async function exportWorkbook(project: GeoProject) {
         code: layer.igeCode,
         status: exportStatus[layer.codeStatus],
         x: column.coordinates?.x ?? null,
-        y: column.coordinates?.y ?? null
+        y: column.coordinates?.y ?? null,
+        ruleState
       })
       row.getCell(7).numFmt = '0.00'
       row.getCell(11).numFmt = '0.00'
@@ -314,7 +322,7 @@ export async function exportWorkbook(project: GeoProject) {
   }
   fictitiousSheet.getRow(1).font = { bold: true }
   fictitiousSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
-  fictitiousSheet.autoFilter = { from: 'A1', to: 'O1' }
+  fictitiousSheet.autoFilter = { from: 'A1', to: 'P1' }
   fictitiousSheet.views = [{ state: 'frozen', ySplit: 1 }]
 
   const codeSummary = workbook.addWorksheet('Сводка ИГЭ')
@@ -406,6 +414,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Требуют проверки', key: 'issues', width: 20 },
     { header: 'Проблемы глубин', key: 'depthIssues', width: 20 },
     { header: 'Ошибки границ', key: 'boundaryIssues', width: 18 },
+    { header: 'Ошибки интерполяции', key: 'interpolationIssues', width: 24 },
     { header: 'Источник имени', key: 'named', width: 22 },
     { header: 'В расчёте', key: 'included', width: 16 },
     { header: 'Проверка завершена', key: 'reviewed', width: 22 },
@@ -417,11 +426,13 @@ export async function exportWorkbook(project: GeoProject) {
     const depthIssueCount = coreColumn.layers.reduce((sum, _layer, index) => sum + (getCoreLayerDepthIssue(coreColumn.layers, index) ? 1 : 0), 0)
     const codeIssueCount = column.layers.filter(layer => layer.status === 'ambiguous' || layer.status === 'not-found').length
     const boundaryIssueCount = column.isExcluded ? 0 : getCoreBoreholeBoundaryIssues(boundaryModel, column.id).length
+    const interpolationIssueCount = column.isExcluded ? 0 : interpolationReviewItems.filter(item => item.boreholeId === column.id).length
     control.addRow({
       index: column.index, name: column.name, pk: formatPk(column.pk), layers: column.layers.length,
-      issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (column.sourceNamed ? 0 : 1) + boundaryIssueCount,
+      issues: column.isExcluded ? 0 : depthIssueCount + codeIssueCount + (coreColumn.kind === 'dxf' && !column.sourceNamed ? 1 : 0) + boundaryIssueCount + interpolationIssueCount,
       depthIssues: column.isExcluded ? 0 : depthIssueCount,
       boundaryIssues: boundaryIssueCount,
+      interpolationIssues: interpolationIssueCount,
       named: column.kind === 'fictitious' ? 'Фиктивная · сохранённое правило' : column.sourceNamed ? 'Подпись DXF' : 'Ручное поле',
       included: column.isExcluded ? 'Нет' : 'Да',
       reviewed: column.isReviewed && !column.isExcluded ? 'Да' : 'Нет',
@@ -449,9 +460,11 @@ export async function exportWorkbook(project: GeoProject) {
     'missing-code': 'ИГЭ не найден',
     'invalid-depth': 'Некорректная глубина',
     'depth-order': 'Порядок подошв',
-    'invalid-boundary': 'Некорректная граница'
+    'invalid-boundary': 'Некорректная граница',
+    'fictitious-outdated': 'Источники интерполяции изменились',
+    'fictitious-invalid': 'Правило интерполяции недействительно'
   } as const
-  const reviewItems = getCoreReviewItems(coreModel, boundaryModel)
+  const reviewItems = getCoreSectionReport(coreModel, boundaryModel).items
   for (const item of reviewItems) {
     const column = coreModel.boreholes.find(candidate => candidate.id === item.boreholeId)
     const boundary = item.boundaryId
@@ -461,7 +474,7 @@ export async function exportWorkbook(project: GeoProject) {
       ? coreModel.boreholes.flatMap(candidate => candidate.layers).find(candidate => candidate.id === item.layerId)
       : null
     reviewSheet.addRow({
-      source: item.source === 'boundary' ? 'Корреляция границ' : 'Геологическая модель',
+      source: item.source === 'boundary' ? 'Корреляция границ' : item.source === 'interpolation' ? 'Правило интерполяции' : 'Геологическая модель',
       kind: reviewKindLabels[item.kind],
       object: boundary ? `${boundary.leftBoreholeName} → ${boundary.rightBoreholeName}` : column?.name || item.boreholeId,
       pk: boundary ? `${formatPk(boundary.leftPk)} — ${formatPk(boundary.rightPk)}` : column ? formatPk(column.pk) : '',

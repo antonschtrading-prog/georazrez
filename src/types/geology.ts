@@ -48,6 +48,8 @@ export interface FictitiousInterpolation {
   fraction: number
   note: string
   createdAt: string
+  /** Детерминированный слепок исходных данных, на которых подтверждено правило. */
+  sourceFingerprint?: string
 }
 
 export interface Borehole {

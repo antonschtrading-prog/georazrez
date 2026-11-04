@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Layers3, ListChecks, Spline } from 'lucide-react'
-import type { ActivityItem, CodeSummaryItem, GapDecision, IssueKind } from '@/types/geology'
-import type { CoreBoundaryItem, CoreBoundaryModel, CoreReviewItem } from '@/lib/geologyCore'
+import type { ActivityItem, CodeSummaryItem, GapDecision } from '@/types/geology'
+import type { CoreBoundaryItem, CoreBoundaryModel, CoreReviewItem, CoreReviewKind } from '@/lib/geologyCore'
 
 interface Props {
   issues: CoreReviewItem[]
@@ -40,7 +40,7 @@ const boundaryStatus = (item: CoreBoundaryItem) => {
 export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onDecideGap, onEditInactiveGapDecision, onRemoveGapDecision, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
-  const [kind, setKind] = useState<'all' | IssueKind | 'invalid-boundary'>('all')
+  const [kind, setKind] = useState<'all' | CoreReviewKind>('all')
   const [boundaryFilter, setBoundaryFilter] = useState<'gaps' | 'open' | 'decided' | 'all' | 'connected' | 'invalid'>('gaps')
   const filtered = issues.filter(issue => kind === 'all' || issue.kind === kind)
   const filteredBoundaries = boundaries.items.filter(item => boundaryFilter === 'all'
@@ -71,6 +71,8 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
             <select id="issue-kind" value={kind} onChange={event => setKind(event.target.value as typeof kind)}>
               <option value="all">Все проблемы</option>
               <option value="invalid-boundary">Некорректные границы</option>
+              <option value="fictitious-outdated">Источники интерполяции изменились</option>
+              <option value="fictitious-invalid">Недействительные правила интерполяции</option>
               <option value="ambiguous-code">Неоднозначные ИГЭ</option>
               <option value="missing-code">ИГЭ не найден</option>
               <option value="invalid-depth">Некорректная глубина</option>
@@ -95,13 +97,21 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
         </button>
       </div>
       {!collapsed && <div className="issue-dock-body">
-        {tab === 'issues' && <div className="issue-table" role="list">
+        {tab === 'issues' && <div className="issue-review-content">
+          <div className="section-review-summary" aria-label="Сводка единой проверки сечения">
+            <span><strong>{issues.filter(item => item.source === 'geology').length}</strong> геология</span>
+            <span><strong>{issues.filter(item => item.source === 'boundary').length}</strong> границы</span>
+            <span><strong>{issues.filter(item => item.source === 'interpolation').length}</strong> интерполяция</span>
+            <small>{boundaries.openGaps} открытых разрывов · не ошибки</small>
+          </div>
+          <div className="issue-table" role="list">
           {filtered.map(issue => <button type="button" role="listitem" className={`issue-row ${issue.id === activeIssueId ? 'active' : ''}`} key={issue.id} onClick={() => onSelect(issue)}>
             <span className={`issue-icon ${issue.kind}`}><AlertCircle size={15} /></span>
             <span className="issue-copy"><strong>{issue.title}</strong><span>{issue.detail}</span></span>
             <span className="issue-action">Показать</span>
           </button>)}
           {!filtered.length && <div className="issue-empty">В этой категории проблем нет.</div>}
+          </div>
         </div>}
         {tab === 'codes' && <div className="code-summary-scroll">
           <table className="code-summary-table">

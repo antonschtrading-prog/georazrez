@@ -1,13 +1,14 @@
 import { useState, type FocusEvent } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { getCoreLayerDepthIssue, getCoreLayerThickness, type CoreBorehole, type CoreBoundaryItem } from '@/lib/geologyCore'
+import { getCoreLayerDepthIssue, getCoreLayerThickness, type CoreBorehole, type CoreBoundaryItem, type CoreReviewItem } from '@/lib/geologyCore'
 import { formatPk, getCharacteristicCoverage, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface Props {
   column: Borehole
   coreColumn: CoreBorehole
   boundaryIssues: CoreBoundaryItem[]
+  interpolationIssues: CoreReviewItem[]
   selectedLayerId: string | null
   igePassport: IgePassport | null
   igeLayerCount: number
@@ -37,7 +38,7 @@ const statusText: Record<CodeStatus, string> = {
   interpolated: 'Интерполировано'
 }
 
-export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, fictitiousSources, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed, onEditFictitious, onDeleteFictitious }: Props) {
+export function Inspector({ column, coreColumn, boundaryIssues, interpolationIssues, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, fictitiousSources, onNeighborSelect, onPassportChange, onCharacteristicChange, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed, onEditFictitious, onDeleteFictitious }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -51,7 +52,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
   const selectedCoreLayer = coreColumn.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
   const hasGeologicalIssues = (coreColumn.kind === 'dxf' && !coreColumn.sourceNamed) || coreColumn.layers.some((layer, index) => getCoreLayerDepthIssue(coreColumn.layers, index) || layer.codeStatus === 'ambiguous' || layer.codeStatus === 'not-found')
-  const hasIssues = hasGeologicalIssues || boundaryIssues.length > 0
+  const hasIssues = hasGeologicalIssues || boundaryIssues.length > 0 || interpolationIssues.length > 0
   const characteristicCoverage = getCharacteristicCoverage(igePassport)
   const characteristicGroups = [...new Set(SOIL_CHARACTERISTICS.map(item => item.group))]
 
@@ -352,13 +353,21 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
           <div className="verification-heading"><strong>Проверка скважины</strong><span className={column.isReviewed ? 'reviewed' : ''}>{column.isReviewed ? 'Подтверждена' : hasIssues ? 'Есть проблемы' : 'Готова к проверке'}</span></div>
           <p>{column.isReviewed
             ? `Подтверждено ${column.reviewedAt}. Любая последующая правка снимет этот статус.`
-            : hasGeologicalIssues && boundaryIssues.length
-              ? 'Сначала решите вопросы по имени, глубинам, кодам ИГЭ и некорректным границам корреляции.'
-              : boundaryIssues.length
-                ? 'Сначала устраните некорректные границы корреляции этой скважины. Обычные разрывы не блокируют проверку.'
-                : hasGeologicalIssues
-                  ? 'Сначала решите все вопросы по имени, глубинам и кодам ИГЭ этой скважины.'
-                  : 'Подтвердите, что имя, глубины, коды ИГЭ и связанные границы проверены инженером.'}</p>
+            : interpolationIssues.length
+              ? 'Источники или условия сохранённого правила изменились. Проверьте preview и явно подтвердите пересчёт; автоматическая подмена слоёв запрещена.'
+              : hasGeologicalIssues && boundaryIssues.length
+                ? 'Сначала решите вопросы по имени, глубинам, кодам ИГЭ и некорректным границам корреляции.'
+                : boundaryIssues.length
+                  ? 'Сначала устраните некорректные границы корреляции этой скважины. Обычные разрывы не блокируют проверку.'
+                  : hasGeologicalIssues
+                    ? 'Сначала решите все вопросы по имени, глубинам и кодам ИГЭ этой скважины.'
+                    : 'Подтвердите, что имя, глубины, коды ИГЭ и связанные границы проверены инженером.'}</p>
+          {interpolationIssues.length > 0 && <div className="review-boundary-issues interpolation-review-issues" role="list" aria-label="Проблемы правила интерполяции">
+            {interpolationIssues.map(item => <div className="review-boundary-issue" role="listitem" key={item.id}>
+              <strong>{item.kind === 'fictitious-outdated' ? 'Требуется проверка актуальности' : 'Правило недействительно'}</strong>
+              <span>{item.detail}</span>
+            </div>)}
+          </div>}
           {boundaryIssues.length > 0 && <div className="review-boundary-issues" role="list" aria-label="Некорректные границы скважины">
             {boundaryIssues.map(item => <div className="review-boundary-issue" role="listitem" key={item.id}>
               <strong>Граница {item.leftOrdinal ?? '—'}↔{item.rightOrdinal ?? '—'} · {item.leftBoreholeId === column.id ? item.rightBoreholeName : item.leftBoreholeName}</strong>

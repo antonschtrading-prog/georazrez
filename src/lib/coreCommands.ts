@@ -3,6 +3,8 @@ import {
   getCoreBoundaryModel,
   getCoreIssues,
   getCoreFictitiousPreview,
+  getCoreFictitiousSourceFingerprint,
+  getCoreInterpolationReviewItems,
   type CoreBorehole,
   type CoreFictitiousPreview,
   type CoreLayer,
@@ -265,6 +267,9 @@ export function setCoreBoreholeReviewed(
   }
   if (reviewed && getCoreBoreholeBoundaryIssues(getCoreBoundaryModel(model), boreholeId).length) {
     throw new Error('Сначала устраните некорректные границы корреляции этой скважины')
+  }
+  if (reviewed && getCoreInterpolationReviewItems(model).some(issue => issue.boreholeId === boreholeId)) {
+    throw new Error('Сначала проверьте актуальность правила интерполяции и при необходимости явно подтвердите пересчёт')
   }
   if (borehole.review.reviewed === reviewed) return model
   const next: CoreBorehole = {
@@ -754,7 +759,8 @@ export function addCoreFictitiousBorehole(
       rightBoreholeId,
       fraction,
       note: note.trim(),
-      createdAt: now.toISOString()
+      createdAt: now.toISOString(),
+      sourceFingerprint: getCoreFictitiousSourceFingerprint(model, leftBoreholeId, rightBoreholeId)
     },
     sourceRefs: { sideLines: [], nameText: '' },
     drawing: { x: preview.x, top: preview.top, bottom: preview.bottom, levels: layers.map(layer => layer.drawingY) },
@@ -793,7 +799,8 @@ export function updateCoreFictitiousBorehole(
   const rule = borehole.interpolation
   const preview = getCoreFictitiousPreview(model, rule.leftBoreholeId, rule.rightBoreholeId, fraction)
   const layers = interpolatedLayers(model, boreholeId, preview)
-  const unchanged = rule.fraction === fraction && rule.note === note.trim() &&
+  const sourceFingerprint = getCoreFictitiousSourceFingerprint(model, rule.leftBoreholeId, rule.rightBoreholeId)
+  const unchanged = rule.fraction === fraction && rule.note === note.trim() && rule.sourceFingerprint === sourceFingerprint &&
     borehole.drawing.x === preview.x && borehole.drawing.top === preview.top && borehole.drawing.bottom === preview.bottom &&
     borehole.layers.length === layers.length && borehole.layers.every((layer, index) =>
       layer.bottomDepth === layers[index].bottomDepth && layer.igeCode === layers[index].igeCode &&
@@ -801,7 +808,7 @@ export function updateCoreFictitiousBorehole(
   if (unchanged) return model
   const nextBorehole = resetReview({
     ...borehole,
-    interpolation: { ...rule, fraction, note: note.trim() },
+    interpolation: { ...rule, fraction, note: note.trim(), sourceFingerprint },
     drawing: { x: preview.x, top: preview.top, bottom: preview.bottom, levels: layers.map(layer => layer.drawingY) },
     pk: preview.pk,
     coordinates: preview.coordinates ? { ...preview.coordinates } : null,
