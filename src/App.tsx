@@ -9,8 +9,9 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, downloadLabTemplate, exportProjectFile, exportWorkbook, addActivity, readLabWorkbook, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
-import { getIgeKey, getLabRegistry, getLabTestIssues, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { createCoreModel, createProjectFromCore, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
+import { addCoreLayer, changeCoreLayerCode, changeCoreLayerDepth, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
+import { getIgeKey, getLabRegistry, getLabTestIssues, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -116,6 +117,19 @@ export default function App() {
     setProject(next)
   }
 
+  const commitCore = (updater: (current: NonNullable<typeof coreModel>) => NonNullable<typeof coreModel>): boolean => {
+    if (!coreModel) return false
+    try {
+      const next = updater(coreModel)
+      if (next === coreModel) return false
+      commitProject(() => createProjectFromCore(next))
+      return true
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : 'Не удалось выполнить команду ядра')
+      return false
+    }
+  }
+
   const undo = () => {
     if (!project || !past.length) return
     const previous = past[past.length - 1]
@@ -212,54 +226,22 @@ export default function App() {
   }
 
   const renameSelected = (name: string) => {
-    if (!project || !selected) return
-    const previousName = selected.name
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? { ...column, name, sourceNamed: name.trim().length > 0, isReviewed: false, reviewedAt: '' } : column)
-    }, `Скважина №${selected.index}: наименование изменено с «${previousName}» на «${name.trim() || 'без имени'}»`))
+    if (!selected) return
+    commitCore(current => renameCoreBorehole(current, selected.id, name))
   }
 
   const changeDepth = (layerId: string, depth: number) => {
-    if (!project || !selected) return
-    const index = selected.layers.findIndex(layer => layer.id === layerId)
-    if (index < 0) return
-    const previous = selected.layers[index - 1]?.depth ?? 0
-    const next = selected.layers[index + 1]?.depth ?? Infinity
-    if (depth <= previous || depth >= next) {
-      toast.error('Глубина должна возрастать от предыдущего слоя к следующему')
-      return
+    if (!selected) return
+    if (commitCore(current => changeCoreLayerDepth(current, selected.id, layerId, depth))) {
+      toast.success('Глубина обновлена')
     }
-    const oldDepth = selected.layers[index].depth
-    if (depth === oldDepth) return
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? {
-        ...column,
-        isReviewed: false,
-        reviewedAt: '',
-        layers: column.layers.map(layer => layer.id === layerId ? { ...layer, depth, y: column.top - depth * 10, depthSource: 'manual' } : layer)
-      } : column)
-    }, `${selected.name}: глубина слоя ${index + 1} изменена с ${String(oldDepth).replace('.', ',')} на ${String(depth).replace('.', ',')} м`))
-    toast.success('Глубина обновлена')
   }
 
   const changeCode = (layerId: string, code: string, status?: CodeStatus) => {
-    if (!project || !selected) return
-    const layer = selected.layers.find(item => item.id === layerId)
-    if (!layer) return
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? {
-        ...column,
-        isReviewed: false,
-        reviewedAt: '',
-        layers: column.layers.map(item => item.id === layerId ? {
-          ...item, ige: code, status: status || (code ? 'manual' : 'not-found'), source: code ? 'Ручное подтверждение' : 'Требует проверки'
-        } : item)
-      } : column)
-    }, `${selected.name}, ${String(layer.depth).replace('.', ',')} м: ИГЭ ${code || 'не задан'}`))
-    if (code) toast.success(`ИГЭ ${code} подтверждён вручную`)
+    if (!selected) return
+    if (commitCore(current => changeCoreLayerCode(current, selected.id, layerId, code, status)) && code) {
+      toast.success(`ИГЭ ${code} подтверждён вручную`)
+    }
   }
 
   const changePassport = (code: string, field: 'name' | 'description' | 'notes', value: string) => {
@@ -399,88 +381,43 @@ export default function App() {
   }
 
   const addLayer = (depth: number, code: string) => {
-    if (!project || !selected || selected.isExcluded) return
-    const insertionIndex = selectedLayer ? selected.layers.findIndex(layer => layer.id === selectedLayer.id) + 1 : selected.layers.length
-    const previous = selected.layers[insertionIndex - 1]?.depth ?? 0
-    const next = selected.layers[insertionIndex]?.depth ?? Infinity
-    if (!Number.isFinite(depth) || depth <= previous || depth >= next) {
-      toast.error('Новая глубина нарушает порядок подошв')
-      return
+    if (!coreModel || !selected) return
+    try {
+      const result = addCoreLayer(coreModel, selected.id, selectedLayer?.id || null, depth, code)
+      commitProject(() => createProjectFromCore(result.model))
+      setSelectedLayerId(result.layerId)
+      toast.success('Подошва добавлена в расчётный проект')
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : 'Не удалось добавить подошву')
     }
-    const newId = `${selected.id}-manual-${Date.now()}`
-    const layer: Layer = {
-      id: newId,
-      depth,
-      y: selected.top - depth * 10,
-      ige: code,
-      status: code ? 'manual' : 'not-found',
-      candidates: [],
-      source: code ? 'Ручное добавление' : 'Новый слой: требуется ИГЭ',
-      depthSource: 'manual'
-    }
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => {
-        if (column.id !== selected.id) return column
-        const layers = [...column.layers]
-        layers.splice(insertionIndex, 0, layer)
-        return { ...column, layers, isReviewed: false, reviewedAt: '' }
-      })
-    }, `${selected.name}: добавлена подошва ${String(depth).replace('.', ',')} м${code ? `, ИГЭ ${code}` : ', код ИГЭ требует проверки'}`))
-    setSelectedLayerId(newId)
-    toast.success('Подошва добавлена в расчётный проект')
   }
 
   const deleteLayer = (layerId: string) => {
-    if (!project || !selected || selected.isExcluded) return
+    if (!selected) return
     const index = selected.layers.findIndex(layer => layer.id === layerId)
     if (index < 0) return
-    const removed = selected.layers[index]
     const nextSelected = selected.layers[index + 1]?.id || selected.layers[index - 1]?.id || null
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? {
-        ...column,
-        isReviewed: false,
-        reviewedAt: '',
-        layers: column.layers.filter(layer => layer.id !== layerId)
-      } : column)
-    }, `${selected.name}: удалена подошва ${String(removed.depth).replace('.', ',')} м${removed.ige ? `, ИГЭ ${removed.ige}` : ''}`))
-    setSelectedLayerId(nextSelected)
-    toast.success('Подошва удалена; действие можно отменить')
+    if (commitCore(current => deleteCoreLayer(current, selected.id, layerId))) {
+      setSelectedLayerId(nextSelected)
+      toast.success('Подошва удалена; действие можно отменить')
+    }
   }
 
   const toggleSelectedReviewed = () => {
-    if (!project || !selected || selected.isExcluded) return
-    const hasIssues = issues.some(issue => issue.boreholeId === selected.id)
-    if (!selected.isReviewed && hasIssues) {
-      toast.error('Сначала решите все проблемы этой скважины')
-      return
-    }
+    if (!selected) return
     const reviewing = !selected.isReviewed
-    const reviewedAt = reviewing ? new Date().toLocaleString('ru-RU') : ''
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? { ...column, isReviewed: reviewing, reviewedAt } : column)
-    }, reviewing ? `${selected.name}: проверка подтверждена инженером` : `${selected.name}: подтверждение проверки снято`))
-    toast.success(reviewing ? 'Скважина отмечена как проверенная' : 'Скважина возвращена на проверку')
+    if (commitCore(current => setCoreBoreholeReviewed(current, selected.id, reviewing))) {
+      toast.success(reviewing ? 'Скважина отмечена как проверенная' : 'Скважина возвращена на проверку')
+    }
   }
 
   const toggleSelectedExcluded = (reason: string) => {
-    if (!project || !selected) return
+    if (!selected) return
     const excluding = !selected.isExcluded
-    commitProject(current => addActivity({
-      ...current,
-      columns: current.columns.map(column => column.id === selected.id ? {
-        ...column,
-        isExcluded: excluding,
-        exclusionReason: excluding ? reason : '',
-        isReviewed: false,
-        reviewedAt: ''
-      } : column)
-    }, excluding ? `${selected.name}: исключена из расчёта. Причина: ${reason}` : `${selected.name}: возвращена в расчёт`))
-    setSelectedLayerId(null)
-    toast.success(excluding ? 'Колонка исключена из расчёта, исходная геометрия сохранена' : 'Колонка возвращена в расчёт')
+    if (commitCore(current => setCoreBoreholeIncluded(current, selected.id, !excluding, reason))) {
+      setSelectedLayerId(null)
+      toast.success(excluding ? 'Колонка исключена из расчёта, исходная геометрия сохранена' : 'Колонка возвращена в расчёт')
+    }
   }
 
   const saveNow = async () => {
@@ -574,8 +511,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.20 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.20</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.21 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.21</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
