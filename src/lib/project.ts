@@ -113,6 +113,43 @@ export async function exportWorkbook(project: GeoProject) {
   sheet.autoFilter = { from: 'A1', to: 'M1' }
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 
+  const sourceSheet = workbook.addWorksheet('Источники DXF')
+  sourceSheet.columns = [
+    { header: 'Скважина', key: 'name', width: 28 },
+    { header: 'ПК', key: 'pk', width: 16 },
+    { header: 'Подошва №', key: 'ordinal', width: 14 },
+    { header: 'Текущая глубина, м', key: 'depth', width: 21 },
+    { header: 'Текущий ИГЭ', key: 'code', width: 16 },
+    { header: 'Происхождение глубины', key: 'depthSource', width: 28 },
+    { header: 'Текущий статус ИГЭ', key: 'codeStatus', width: 28 },
+    { header: 'DXF: боковые линии', key: 'sideLines', width: 28 },
+    { header: 'DXF: подпись скважины', key: 'nameText', width: 26 },
+    { header: 'DXF: подпись глубины', key: 'depthText', width: 26 },
+    { header: 'DXF: кандидаты ИГЭ', key: 'codeTexts', width: 38 }
+  ]
+  for (const column of coreModel.boreholes) {
+    for (const layer of column.layers) {
+      const row = sourceSheet.addRow({
+        name: column.name,
+        pk: formatPk(column.pk),
+        ordinal: layer.ordinal,
+        depth: layer.bottomDepth,
+        code: layer.igeCode,
+        depthSource: layer.depthSource === 'manual' ? 'Ручное значение' : 'Исходный DXF',
+        codeStatus: exportStatus[layer.codeStatus],
+        sideLines: column.sourceRefs.sideLines.join(' / '),
+        nameText: column.sourceRefs.nameText,
+        depthText: layer.sourceRefs.depthText,
+        codeTexts: layer.sourceRefs.codeTexts.join(' / ')
+      })
+      row.getCell(4).numFmt = '0.00'
+    }
+  }
+  sourceSheet.getRow(1).font = { bold: true }
+  sourceSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  sourceSheet.autoFilter = { from: 'A1', to: 'K1' }
+  sourceSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
   const boundarySheet = workbook.addWorksheet('Расчётные границы')
   boundarySheet.columns = [
     { header: 'Левая скважина', key: 'leftName', width: 28 },

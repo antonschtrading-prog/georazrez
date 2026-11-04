@@ -116,7 +116,7 @@ function extractColumns(geo) {
 
 const nameRe = /(?:скв\.?|скважин)[\s._-]*[\wа-яё.-]+/i;
 
-function assignNames(columns, texts) {
+function assignNameAssignments(columns, texts) {
   const labels = [];
   for (const t of texts) {
     const raw = t.text.trim();
@@ -136,14 +136,20 @@ function assignNames(columns, texts) {
   }
   pairs.sort((a, b) => a.score - b.score);
   const names = columns.map((_, i) => 'Скв. ' + (i + 1));
+  const nameHandles = columns.map(() => '');
   const usedI = new Set(), usedJ = new Set(), usedNames = new Set();
   for (const p of pairs) {
     const name = labels[p.j].text.trim(), key = name.toLowerCase();
     if (usedI.has(p.i) || usedJ.has(p.j) || usedNames.has(key)) continue;
     names[p.i] = name;
+    nameHandles[p.i] = labels[p.j].handle || '';
     usedI.add(p.i); usedJ.add(p.j); usedNames.add(key);
   }
-  return names;
+  return { names, nameHandles };
+}
+
+function assignNames(columns, texts) {
+  return assignNameAssignments(columns, texts).names;
 }
 
 function buildCircleCodes(geo) {
@@ -324,21 +330,29 @@ function assignCodes(columns, depths, circleCodes, topology, soilScale = 100) {
         depth: a.depth,
         ige: distinct.length === 1 ? distinct[0] : '',
         status: distinct.length > 1 ? 'ambiguous' : topo.length ? 'topology' : vertical.length ? 'vertical-only' : 'not-found',
-        candidates: pool.map(p => ({ code: p.circle.code, x: p.circle.x, y: p.circle.y, reason: p.reason }))
+        candidates: pool.map(p => ({
+          code: p.circle.code,
+          x: p.circle.x,
+          y: p.circle.y,
+          reason: p.reason,
+          handle: p.circle.text?.handle || '',
+          circleHandle: p.circle.handle || ''
+        }))
       };
     });
   });
 }
 
 function audit(content, reviewed = false) {
-  const geo = parseDXF(content), columns = extractColumns(geo), names = assignNames(columns, geo.texts);
+  const geo = parseDXF(content), columns = extractColumns(geo);
+  const { names, nameHandles } = assignNameAssignments(columns, geo.texts);
   const circleCodes = buildCircleCodes(geo);
   // Это не встроенное исключение: handle передан только как результат ручной проверки этого файла.
   const ignored = reviewed ? new Set(['3034B']) : new Set();
   const depths = extractDepths(columns, geo, circleCodes, 100, ignored);
   const topology = buildTopology(columns, geo);
   const codes = assignCodes(columns, depths, circleCodes, topology, 100);
-  return { geo, columns, names, circleCodes, depths, topology, codes };
+  return { geo, columns, names, nameHandles, circleCodes, depths, topology, codes };
 }
 
 

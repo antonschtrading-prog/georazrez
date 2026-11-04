@@ -3,16 +3,19 @@ import {
   getIgeKey,
   type ActivityItem,
   type Borehole,
+  type BoreholeSourceRefs,
   type CodeCandidate,
   type CodeStatus,
   type CodeSummaryItem,
   type GeoIssue,
   type GeoProject,
+  type GeoSegment,
   type IgePassport,
   type IssueKind,
   type LayerDepthIssue,
   type LayerNeighbor,
   type LayerNeighbors,
+  type LayerSourceRefs,
   type ManualCorrelation,
   type SoilCharacteristicKey,
   type SoilCharacteristicRecord
@@ -32,6 +35,7 @@ export interface CoreLayer {
   candidates: CodeCandidate[]
   codeSource: string
   depthSource: 'dxf' | 'manual'
+  sourceRefs: LayerSourceRefs
 }
 
 export interface CoreBorehole {
@@ -39,6 +43,7 @@ export interface CoreBorehole {
   index: number
   name: string
   sourceNamed: boolean
+  sourceRefs: BoreholeSourceRefs
   drawing: {
     x: number
     top: number
@@ -147,9 +152,14 @@ export interface CoreDxfExtraction {
     sideTop: number
     sideBottom: number
     levels: number[]
+    verticals: GeoSegment[]
   }[]
   names: string[]
-  depths: { excluded: Borehole['excluded'] }[]
+  nameHandles: string[]
+  depths: {
+    accepted: { depth: number; y: number; text: { handle?: string } }[]
+    excluded: Borehole['excluded']
+  }[]
   codes: {
     depth: number
     ige: string
@@ -179,6 +189,7 @@ export type CoreIssueKind =
   | 'invalid-passport-key'
   | 'invalid-correlation'
   | 'duplicate-correlation'
+  | 'invalid-source-reference'
 
 export interface CoreModelIssue {
   id: string
@@ -265,6 +276,10 @@ export function createCoreModelFromExtraction(
       index: index + 1,
       name: sourceNamed ? extraction.names[index] : `Без имени · №${index + 1}`,
       sourceNamed,
+      sourceRefs: {
+        sideLines: column.verticals.map(segment => segment.handle || '').filter(Boolean),
+        nameText: extraction.nameHandles[index] || ''
+      },
       drawing: {
         x: column.x,
         top: column.sideTop,
@@ -287,7 +302,11 @@ export function createCoreModelFromExtraction(
         codeStatus: layer.status,
         candidates: layer.candidates.map(candidate => ({ ...candidate })),
         codeSource: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки',
-        depthSource: 'dxf'
+        depthSource: 'dxf',
+        sourceRefs: {
+          depthText: extraction.depths[index].accepted[layerIndex]?.text.handle || '',
+          codeTexts: [...new Set(layer.candidates.flatMap(candidate => candidate.handle ? [candidate.handle] : []))]
+        }
       })),
       excludedLabels: extraction.depths[index].excluded.map(label => ({ text: label.text, handle: label.handle, reason: label.reason }))
     }
@@ -349,6 +368,10 @@ export function createCoreModel(project: GeoProject): CoreModel {
       index: column.index,
       name: column.name,
       sourceNamed: column.sourceNamed,
+      sourceRefs: {
+        sideLines: [...(column.sourceRefs?.sideLines || [])],
+        nameText: column.sourceRefs?.nameText || ''
+      },
       drawing: {
         x: column.x,
         top: column.top,
@@ -376,7 +399,11 @@ export function createCoreModel(project: GeoProject): CoreModel {
         codeStatus: layer.status,
         candidates: layer.candidates.map(candidate => ({ ...candidate })),
         codeSource: layer.source,
-        depthSource: layer.depthSource || 'dxf'
+        depthSource: layer.depthSource || 'dxf',
+        sourceRefs: {
+          depthText: layer.sourceRefs?.depthText || '',
+          codeTexts: [...(layer.sourceRefs?.codeTexts || [])]
+        }
       })),
       excludedLabels: column.excluded.map(label => ({ ...label }))
     })),
@@ -415,6 +442,10 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
       exclusionReason: column.exclusionReason,
       isReviewed: column.review.reviewed,
       reviewedAt: column.review.reviewedAt,
+      sourceRefs: {
+        sideLines: [...column.sourceRefs.sideLines],
+        nameText: column.sourceRefs.nameText
+      },
       layers: column.layers.map(layer => ({
         id: layer.id,
         depth: layer.bottomDepth,
@@ -423,7 +454,11 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
         status: layer.codeStatus,
         candidates: layer.candidates.map(candidate => ({ ...candidate })),
         source: layer.codeSource,
-        depthSource: layer.depthSource
+        depthSource: layer.depthSource,
+        sourceRefs: {
+          depthText: layer.sourceRefs.depthText,
+          codeTexts: [...layer.sourceRefs.codeTexts]
+        }
       })),
       excluded: column.excludedLabels.map(label => ({ ...label }))
     })),
@@ -811,8 +846,29 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     add({ kind: 'invalid-bounds', title: 'Некорректные границы геометрии', detail: 'Границы должны быть конечными и упорядоченными по минимуму и максимуму.' })
   }
 
+  const sourceHandles = new Set([
+    ...model.project.geometry.segments,
+    ...model.project.geometry.texts,
+    ...model.project.geometry.circles
+  ].flatMap(item => item.handle ? [item.handle] : []))
   const boreholeIds = new Set<string>()
   const layerOwners = new Map<string, string>()
+  const checkSourceReference = (
+    handle: string,
+    column: CoreBorehole,
+    layer: CoreLayer | null,
+    label: string
+  ) => {
+    if (handle && !sourceHandles.has(handle)) {
+      add({
+        kind: 'invalid-source-reference',
+        boreholeId: column.id,
+        layerId: layer?.id,
+        title: `${column.name}: потеряна ссылка на исходный DXF`,
+        detail: `${label}: объект с handle ${handle} отсутствует в сохранённой исходной геометрии. Данные не восстанавливаются автоматически.`
+      })
+    }
+  }
   for (const column of model.boreholes) {
     if (boreholeIds.has(column.id)) {
       add({ kind: 'duplicate-borehole-id', boreholeId: column.id, title: `Повтор идентификатора скважины ${column.id}`, detail: 'Идентификаторы должны быть уникальны, иначе ссылки на слои и ручные решения нельзя считать однозначными.' })
@@ -821,10 +877,14 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     if (column.coordinates && (!Number.isFinite(column.coordinates.x) || !Number.isFinite(column.coordinates.y))) {
       add({ kind: 'invalid-coordinates', boreholeId: column.id, title: `${column.name}: некорректные координаты`, detail: 'Координаты X и Y должны быть конечными числами либо отсутствовать.' })
     }
+    for (const handle of column.sourceRefs.sideLines) checkSourceReference(handle, column, null, 'Боковая линия колонки')
+    checkSourceReference(column.sourceRefs.nameText, column, null, 'Подпись наименования')
     for (const [layerIndex, layer] of column.layers.entries()) {
       if (layerOwners.has(layer.id)) {
         add({ kind: 'duplicate-layer-id', boreholeId: column.id, layerId: layer.id, title: `Повтор идентификатора слоя ${layer.id}`, detail: `Слой уже встречается в скважине ${layerOwners.get(layer.id)}. Данные не объединяются автоматически.` })
       } else layerOwners.set(layer.id, column.id)
+      checkSourceReference(layer.sourceRefs.depthText, column, layer, 'Подпись глубины подошвы')
+      for (const handle of layer.sourceRefs.codeTexts) checkSourceReference(handle, column, layer, 'Подпись кандидата ИГЭ')
       const depthIssue = getCoreLayerDepthIssue(column.layers, layerIndex)
       if (depthIssue === 'invalid-depth') {
         add({ kind: 'invalid-depth', boreholeId: column.id, layerId: layer.id, title: `${column.name}: некорректная подошва`, detail: `Слой ${layer.ordinal}: глубина должна быть положительным конечным числом.` })

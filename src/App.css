@@ -290,6 +290,13 @@
 .coordinate-grid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .coordinate-grid span { color: var(--muted-text); font-size: 9px; }
 .coordinate-grid strong { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 400; white-space: nowrap; }
+.source-section { padding: 13px 0 14px; border-bottom: 1px solid var(--line); }
+.source-section .section-title-row { padding-bottom: 8px; }
+.source-ref-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 12px; padding: 0 16px; }
+.source-ref-grid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.source-ref-grid span { color: var(--muted-text); font-size: 8px; }
+.source-ref-grid strong { overflow-wrap: anywhere; color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 400; }
+.source-section > p { margin: 10px 16px 0; color: var(--muted-text); font-size: 9px; line-height: 1.45; }
 .layers-section { padding: 14px 0 4px; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: 0 16px 11px; }
 .section-title-row h3 { margin: 0; font-size: 12px; font-weight: 600; }

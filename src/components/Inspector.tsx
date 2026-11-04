@@ -44,6 +44,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
   const [deleteOpen, setDeleteOpen] = useState(false)
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
+  const selectedCoreLayer = coreColumn.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
   const hasGeologicalIssues = !coreColumn.sourceNamed || coreColumn.layers.some((layer, index) => getCoreLayerDepthIssue(coreColumn.layers, index) || layer.codeStatus === 'ambiguous' || layer.codeStatus === 'not-found')
   const hasIssues = hasGeologicalIssues || boundaryIssues.length > 0
@@ -142,6 +143,19 @@ export function Inspector({ column, coreColumn, boundaryIssues, selectedLayerId,
             <div><span>X, м</span><strong>{column.coordX?.toFixed(3) ?? '—'}</strong></div>
             <div><span>Y, м</span><strong>{column.coordY?.toFixed(3) ?? '—'}</strong></div>
           </div>
+        </section>
+
+        <section className="source-section" aria-label="Происхождение объектов DXF">
+          <div className="section-title-row"><h3>Источник в DXF</h3><span>handle</span></div>
+          <div className="source-ref-grid">
+            <div><span>Боковые линии</span><strong>{coreColumn.sourceRefs.sideLines.join(' · ') || '—'}</strong></div>
+            <div><span>Подпись скважины</span><strong>{coreColumn.sourceRefs.nameText || '—'}</strong></div>
+            {selectedCoreLayer && <>
+              <div><span>Подпись глубины · слой {selectedCoreLayer.ordinal}</span><strong>{selectedCoreLayer.sourceRefs.depthText || '—'}</strong></div>
+              <div><span>Кандидаты ИГЭ · слой {selectedCoreLayer.ordinal}</span><strong>{selectedCoreLayer.sourceRefs.codeTexts.join(' · ') || '—'}</strong></div>
+            </>}
+          </div>
+          <p>Ссылки указывают на исходные объекты. Ручная правка не переписывает их и не заменяет исходный DXF.</p>
         </section>
 
         <section className="layers-section">

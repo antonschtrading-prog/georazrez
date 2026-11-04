@@ -5,6 +5,18 @@ export interface CodeCandidate {
   x: number
   y: number
   reason: string
+  handle?: string
+  circleHandle?: string
+}
+
+export interface BoreholeSourceRefs {
+  sideLines: string[]
+  nameText: string
+}
+
+export interface LayerSourceRefs {
+  depthText: string
+  codeTexts: string[]
 }
 
 export interface Layer {
@@ -16,6 +28,7 @@ export interface Layer {
   candidates: CodeCandidate[]
   source: string
   depthSource?: 'dxf' | 'manual'
+  sourceRefs?: LayerSourceRefs
 }
 
 export interface ExcludedLabel {
@@ -42,6 +55,7 @@ export interface Borehole {
   exclusionReason?: string
   isReviewed?: boolean
   reviewedAt?: string
+  sourceRefs?: BoreholeSourceRefs
 }
 
 export interface GeoSegment {

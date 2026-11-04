@@ -181,7 +181,8 @@ export function addCoreLayer(
     codeStatus: code ? 'manual' : 'not-found',
     candidates: [],
     codeSource: code ? 'Ручное добавление' : 'Новый слой: требуется ИГЭ',
-    depthSource: 'manual'
+    depthSource: 'manual',
+    sourceRefs: { depthText: '', codeTexts: [] }
   }
   const layers = [...borehole.layers]
   layers.splice(insertionIndex, 0, layer)
