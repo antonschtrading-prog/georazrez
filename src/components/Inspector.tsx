@@ -2,10 +2,12 @@ import { useState, type FocusEvent } from 'react'
 import { AlertTriangle, ArchiveX, Check, CheckCheck, CircleDashed, Link2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { LabTests } from '@/components/LabTests'
-import { formatPk, getCharacteristicCoverage, getLayerDepthIssue, getLayerThickness, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type LabDataIssue, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { getCoreLayerDepthIssue, getCoreLayerThickness, type CoreBorehole } from '@/lib/geologyCore'
+import { formatPk, getCharacteristicCoverage, SOIL_CHARACTERISTICS, type Borehole, type CodeStatus, type IgePassport, type LayerNeighbor, type LayerNeighbors, type LabDataIssue, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 
 interface Props {
   column: Borehole
+  coreColumn: CoreBorehole
   selectedLayerId: string | null
   igePassport: IgePassport | null
   igeLayerCount: number
@@ -41,7 +43,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, focusedLabTestId, labFocusToken, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, coreColumn, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, focusedLabTestId, labFocusToken, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -53,7 +55,7 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
   const disabled = Boolean(column.isExcluded)
   const selectedLayer = column.layers.find(layer => layer.id === selectedLayerId) || null
   const passportCode = selectedLayer?.ige.trim() || ''
-  const hasIssues = !column.sourceNamed || column.layers.some((layer, index) => getLayerDepthIssue(column.layers, index) || layer.status === 'ambiguous' || layer.status === 'not-found')
+  const hasIssues = !coreColumn.sourceNamed || coreColumn.layers.some((layer, index) => getCoreLayerDepthIssue(coreColumn.layers, index) || layer.codeStatus === 'ambiguous' || layer.codeStatus === 'not-found')
   const characteristicCoverage = getCharacteristicCoverage(igePassport)
   const characteristicGroups = [...new Set(SOIL_CHARACTERISTICS.map(item => item.group))]
 
@@ -165,9 +167,9 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
             {column.layers.map((layer, index) => {
               const candidates = [...new Set(layer.candidates.map(c => c.code))]
               const codeHasIssue = layer.status === 'ambiguous' || layer.status === 'not-found'
-              const depthIssue = getLayerDepthIssue(column.layers, index)
+              const depthIssue = getCoreLayerDepthIssue(coreColumn.layers, index)
               const hasIssue = codeHasIssue || Boolean(depthIssue)
-              const thickness = getLayerThickness(column.layers, index)
+              const thickness = getCoreLayerThickness(coreColumn.layers, index)
               return (
                 <div
                   key={layer.id}

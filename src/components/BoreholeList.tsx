@@ -1,19 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
-import { formatPk, getIssues, type GeoProject } from '@/types/geology'
+import { formatPk, type GeoIssue, type GeoProject } from '@/types/geology'
 
 interface Props {
   project: GeoProject
+  issues: GeoIssue[]
   selectedId: string
   onSelect: (id: string) => void
 }
 
 type Filter = 'all' | 'issues' | 'controls' | 'reviewed'
 
-export function BoreholeList({ project, selectedId, onSelect }: Props) {
+export function BoreholeList({ project, issues, selectedId, onSelect }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const issues = useMemo(() => getIssues(project), [project])
   const problemIds = useMemo(() => new Set(issues.map(issue => issue.boreholeId)), [issues])
   const reviewedCount = project.columns.filter(column => column.isReviewed && !column.isExcluded).length
   const filtered = project.columns.filter(column => {

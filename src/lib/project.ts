@@ -1,7 +1,7 @@
 import type ExcelJS from 'exceljs'
 import { audit, axisXY } from './geologyEngine'
-import { createCoreModel, validateCoreModel } from './geologyCore'
-import { formatPk, getCodeSummary, getIgeKey, getLabStatistics, getLabTestStatistics, getLayerDepthIssue, getLayerThickness, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
+import { createCoreModel, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel } from './geologyCore'
+import { formatPk, getIgeKey, getLabStatistics, getLabTestStatistics, getProjectLabIssues, LAB_ISSUE_LABELS, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject, type LabTest } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -247,6 +247,7 @@ export async function readLabWorkbook(file: File, project: GeoProject, code: str
 
 export async function exportWorkbook(project: GeoProject) {
   const { default: ExcelJS } = await import('exceljs')
+  const coreModel = createCoreModel(project)
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'ГеоРазрез'
   workbook.created = new Date()
@@ -268,12 +269,13 @@ export async function exportWorkbook(project: GeoProject) {
   ]
   for (const column of project.columns) {
     if (column.isExcluded) continue
+    const coreColumn = coreModel.boreholes.find(item => item.id === column.id)!
     for (const [layerIndex, layer] of column.layers.entries()) {
       const passport = project.igePassports?.[getIgeKey(layer.ige)]
-      const depthIssue = getLayerDepthIssue(column.layers, layerIndex)
+      const depthIssue = getCoreLayerDepthIssue(coreColumn.layers, layerIndex)
       const row = sheet.addRow({
         pk: formatPk(column.pk), name: column.name, depth: layer.depth,
-        thickness: getLayerThickness(column.layers, layerIndex),
+        thickness: getCoreLayerThickness(coreColumn.layers, layerIndex),
         depthSource: layer.depthSource === 'manual' ? 'Изменена или добавлена вручную' : 'Исходный DXF',
         depthControl: depthIssue === 'invalid-depth' ? 'Некорректная глубина' : depthIssue === 'depth-order' ? 'Порядок подошв нарушен' : 'ОК',
         ige: layer.ige, igeName: passport?.name || '', igeDescription: passport?.description || '',
@@ -308,7 +310,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Лабораторных испытаний', key: 'labTests', width: 24 },
     { header: 'Замечаний лаборатории', key: 'labIssues', width: 24 }
   ]
-  const summaryItems = getCodeSummary(project)
+  const summaryItems = getCoreCodeSummary(coreModel)
   for (const item of summaryItems) {
     const passport = project.igePassports?.[item.key]
     const row = codeSummary.addRow({
@@ -538,7 +540,8 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Причина исключения', key: 'reason', width: 42 }
   ]
   for (const column of project.columns) {
-    const depthIssueCount = column.layers.reduce((sum, _layer, index) => sum + (getLayerDepthIssue(column.layers, index) ? 1 : 0), 0)
+    const coreColumn = coreModel.boreholes.find(item => item.id === column.id)!
+    const depthIssueCount = coreColumn.layers.reduce((sum, _layer, index) => sum + (getCoreLayerDepthIssue(coreColumn.layers, index) ? 1 : 0), 0)
     const codeIssueCount = column.layers.filter(layer => layer.status === 'ambiguous' || layer.status === 'not-found').length
     control.addRow({
       index: column.index, name: column.name, pk: formatPk(column.pk), layers: column.layers.length,
@@ -563,7 +566,7 @@ export async function exportWorkbook(project: GeoProject) {
     { header: 'Замечание', key: 'title', width: 48 },
     { header: 'Пояснение', key: 'detail', width: 90 }
   ]
-  const coreIssues = validateCoreModel(createCoreModel(project))
+  const coreIssues = validateCoreModel(coreModel)
   for (const issue of coreIssues) {
     coreControl.addRow({
       severity: issue.severity === 'error' ? 'Ошибка' : 'Предупреждение',

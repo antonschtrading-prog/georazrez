@@ -9,8 +9,8 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createProjectFromFiles, downloadLabTemplate, exportProjectFile, exportWorkbook, addActivity, readLabWorkbook, readProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
-import { getCodeSummary, getIgeKey, getIssues, getLabRegistry, getLabTestIssues, getLayerNeighbors, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
+import { createCoreModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
+import { getIgeKey, getLabRegistry, getLabTestIssues, SOIL_CHARACTERISTICS, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type IgePassport, type Layer, type LayerNeighbors, type LabRegistryItem, type LabTest, type LabTestField, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
@@ -80,15 +80,16 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [project])
 
-  const issues = useMemo(() => project ? getIssues(project) : [], [project])
-  const codeSummary = useMemo(() => project ? getCodeSummary(project) : [], [project])
+  const coreModel = useMemo(() => project ? createCoreModel(project) : null, [project])
+  const issues = useMemo(() => coreModel ? getCoreIssues(coreModel) : [], [coreModel])
+  const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
   const labRegistry = useMemo(() => project ? getLabRegistry(project) : [], [project])
-  const coreReport = useMemo(() => {
-    if (!project) return null
-    const model = createCoreModel(project)
-    return { stats: getCoreModelStats(model), issues: validateCoreModel(model) }
-  }, [project])
+  const coreReport = useMemo(() => coreModel ? {
+    stats: getCoreModelStats(coreModel),
+    issues: validateCoreModel(coreModel)
+  } : null, [coreModel])
   const selected = project?.columns.find(column => column.id === selectedId) || project?.columns[0]
+  const selectedCore = coreModel?.boreholes.find(column => column.id === selected?.id) || null
   const selectedLayer = selected?.layers.find(layer => layer.id === selectedLayerId) || null
   const activeIssueId = issues.find(issue => issue.boreholeId === selected?.id && (issue.layerId || null) === selectedLayerId)?.id || null
   const activeCodeKey = selectedLayer ? getIgeKey(selectedLayer.ige) : null
@@ -99,8 +100,8 @@ export default function App() {
   const selectedPassportLayerCount = project && activeCodeKey && activeCodeKey !== '__unassigned__'
     ? project.columns.reduce((sum, column) => sum + column.layers.filter(layer => getIgeKey(layer.ige) === activeCodeKey).length, 0)
     : 0
-  const selectedNeighbors: LayerNeighbors = project && selected && selectedLayer
-    ? getLayerNeighbors(project, selected.id, selectedLayer.id)
+  const selectedNeighbors: LayerNeighbors = coreModel && selectedCore && selectedLayer
+    ? getCoreLayerNeighbors(coreModel, selectedCore.id, selectedLayer.id)
     : { previous: null, next: null }
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
@@ -547,7 +548,7 @@ export default function App() {
       <main className={`workspace ${mobilePanel === 'list' ? 'show-list' : ''} ${mobilePanel === 'inspector' ? 'show-inspector' : ''}`}>
         {mobilePanel && <button type="button" className="mobile-backdrop" aria-label="Закрыть панель" onClick={() => setMobilePanel(null)} />}
         <div className="mobile-panel-close list-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        <BoreholeList project={project} selectedId={selected?.id || ''} onSelect={id => { selectBorehole(id); setMobilePanel(null) }} />
+        <BoreholeList project={project} issues={issues} selectedId={selected?.id || ''} onSelect={id => { selectBorehole(id); setMobilePanel(null) }} />
         <section className="workspace-center">
           <div className="viewer-toolbar">
             <div className="viewer-title"><span className="panel-kicker">РАБОЧАЯ ОБЛАСТЬ</span><h1>Инженерно-геологический разрез</h1></div>
@@ -568,13 +569,13 @@ export default function App() {
           <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} labRegistry={labRegistry} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLabTestId={activeLabTestId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectLabTest={selectLabRegistryItem} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        {selected && <Inspector column={selected} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} focusedLabTestId={activeLabTestId} labFocusToken={labFocusToken} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLabImport={importLabTests} onLabTemplate={exportLabTemplate} onLayerSelect={id => { setSelectedLayerId(id); setActiveLabTestId(null) }} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
+        {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} boreholes={project.columns.map(column => ({ id: column.id, name: column.name, layers: column.layers.map(layer => ({ id: layer.id, ige: layer.ige, depth: layer.depth })) }))} labIssues={selectedLabIssues} focusedLabTestId={activeLabTestId} labFocusToken={labFocusToken} onLabTestAdd={addLabTest} onLabTestDelete={deleteLabTest} onLabTestChange={changeLabTest} onLabTestValueChange={changeLabTestValue} onLabImport={importLabTests} onLabTemplate={exportLabTemplate} onLayerSelect={id => { setSelectedLayerId(id); setActiveLabTestId(null) }} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
       </main>
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Источник DXF: ENTITIES · геометрия колонок · топология границ">Каркас ядра 0.17 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.17</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.18 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.18</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
