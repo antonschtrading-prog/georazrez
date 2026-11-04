@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel, type CoreBoundaryItem, type CoreModel } from '@/lib/geologyCore'
-import { addCoreActivity, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
+import { addCoreActivity, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreManualCorrelationNote } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -36,6 +36,8 @@ export default function App() {
   const [correlationBoundary, setCorrelationBoundary] = useState<CoreBoundaryItem | null>(null)
   const [correlationTarget, setCorrelationTarget] = useState('')
   const [correlationNote, setCorrelationNote] = useState('')
+  const [editingCorrelation, setEditingCorrelation] = useState<CoreBoundaryItem | null>(null)
+  const [editingCorrelationNote, setEditingCorrelationNote] = useState('')
 
   useEffect(() => {
     let active = true
@@ -199,6 +201,25 @@ export default function App() {
     if (commitCore(current => addCoreManualCorrelation(current, correlationSourceLayerId, correlationTarget, correlationNote))) {
       setCorrelationBoundary(null)
       toast.success('Ручная корреляция добавлена')
+    }
+  }
+
+  const openCorrelationNote = (item: CoreBoundaryItem) => {
+    if (!item.correlationId) return
+    selectBoundary(item)
+    setEditingCorrelationNote(item.correlationNote)
+    setEditingCorrelation(item)
+  }
+
+  const submitCorrelationNote = () => {
+    if (!editingCorrelation?.correlationId) return
+    if (commitCore(current => updateCoreManualCorrelationNote(
+      current,
+      editingCorrelation.correlationId!,
+      editingCorrelationNote
+    ))) {
+      setEditingCorrelation(null)
+      toast.success('Обоснование корреляции обновлено')
     }
   }
 
@@ -379,7 +400,7 @@ export default function App() {
             <span className="real-data-badge">Реальные исходники</span>
           </div>
           <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} />
-          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onRemoveCorrelation={removeCorrelation} onStep={stepIssue} />
+          <IssueDock issues={issues} activity={project.activity} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
         {selected && selectedCore && <Inspector column={selected} coreColumn={selectedCore} boundaryIssues={selectedBoundaryIssues} selectedLayerId={selectedLayerId} igePassport={selectedPassport} igeLayerCount={selectedPassportLayerCount} layerNeighbors={selectedNeighbors} onNeighborSelect={selectLayerLocation} onPassportChange={changePassport} onCharacteristicChange={changeCharacteristic} onLayerSelect={setSelectedLayerId} onLayerAdd={addLayer} onLayerDelete={deleteLayer} onRename={renameSelected} onDepthChange={changeDepth} onCodeChange={changeCode} onToggleExcluded={toggleSelectedExcluded} onToggleReviewed={toggleSelectedReviewed} />}
@@ -387,8 +408,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.29 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.29</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.30 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.30</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -411,6 +432,26 @@ export default function App() {
             <div className="import-actions">
               <button type="button" className="button secondary" onClick={() => setCorrelationBoundary(null)}>Отмена</button>
               <button type="submit" className="button primary" disabled={!correlationTarget || !correlationNote.trim()}>Добавить связь</button>
+            </div>
+          </form>}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(editingCorrelation)} onOpenChange={open => { if (!open) setEditingCorrelation(null) }}>
+        <DialogContent className="exclude-dialog correlation-note-dialog">
+          <DialogHeader>
+            <DialogTitle>Обоснование ручной корреляции</DialogTitle>
+            <DialogDescription>Изменяется только пояснение инженерного решения. Связанные подошвы, их глубины, исходные коды ИГЭ и геометрия DXF остаются без изменений.</DialogDescription>
+          </DialogHeader>
+          {editingCorrelation && <form onSubmit={event => { event.preventDefault(); submitCorrelationNote() }}>
+            <div className="correlation-source">
+              <span>Связь подошв</span>
+              <strong>{editingCorrelation.leftBoreholeName} · №{editingCorrelation.leftOrdinal ?? '—'} ↔ {editingCorrelation.rightBoreholeName} · №{editingCorrelation.rightOrdinal ?? '—'}</strong>
+            </div>
+            <label className="field-label correlation-note-label" htmlFor="correlation-note-edit">Инженерное обоснование</label>
+            <textarea id="correlation-note-edit" className="reason-input" value={editingCorrelationNote} onChange={event => setEditingCorrelationNote(event.target.value)} required autoFocus />
+            <div className="import-actions">
+              <button type="button" className="button secondary" onClick={() => setEditingCorrelation(null)}>Отмена</button>
+              <button type="submit" className="button primary" disabled={!editingCorrelationNote.trim() || editingCorrelationNote.trim() === editingCorrelation.correlationNote}>Сохранить обоснование</button>
             </div>
           </form>}
         </DialogContent>

@@ -15,6 +15,7 @@ interface Props {
   onSelectCode: (item: CodeSummaryItem) => void
   onSelectBoundary: (item: CoreBoundaryItem) => void
   onCorrelateBoundary: (item: CoreBoundaryItem) => void
+  onEditCorrelation: (item: CoreBoundaryItem) => void
   onRemoveCorrelation: (correlationId: string) => void
   onStep: (direction: -1 | 1) => void
 }
@@ -31,7 +32,7 @@ const boundaryStatus = (item: CoreBoundaryItem) => {
   return item.status === 'left-only' ? 'Нет подошвы справа' : 'Нет подошвы слева'
 }
 
-export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onRemoveCorrelation, onStep }: Props) {
+export function IssueDock({ issues, activity, codeSummary, boundaries, activeIssueId, activeCodeKey, activeLayerId, onSelect, onSelectCode, onSelectBoundary, onCorrelateBoundary, onEditCorrelation, onRemoveCorrelation, onStep }: Props) {
   const [tab, setTab] = useState<'issues' | 'codes' | 'boundaries' | 'activity'>('issues')
   const [collapsed, setCollapsed] = useState(false)
   const [kind, setKind] = useState<'all' | IssueKind>('all')
@@ -142,7 +143,10 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
                 <span className="boundary-status">{boundaryStatus(item)}</span>
               </button>
               {item.manualCorrelation && item.correlationId
-                ? <button type="button" className="boundary-action" onClick={() => onRemoveCorrelation(item.correlationId!)}>Снять связь</button>
+                ? <div className="boundary-actions">
+                  <button type="button" className="boundary-action boundary-edit" onClick={() => onEditCorrelation(item)}>Обоснование</button>
+                  <button type="button" className="boundary-action" onClick={() => onRemoveCorrelation(item.correlationId!)}>Снять связь</button>
+                </div>
                 : isGap ? <button type="button" className="boundary-action" onClick={() => onCorrelateBoundary(item)}>Связать</button> : null}
             </div>
           })}

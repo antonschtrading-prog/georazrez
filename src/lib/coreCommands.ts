@@ -432,6 +432,35 @@ export function addCoreManualCorrelation(
   return { ...next, manualCorrelations: [...model.manualCorrelations, correlation] }
 }
 
+export function updateCoreManualCorrelationNote(
+  model: CoreModel,
+  correlationId: string,
+  note: string,
+  now = new Date()
+): CoreModel {
+  const normalizedNote = note.trim()
+  if (!normalizedNote) throw new Error('Укажите инженерное обоснование корреляции')
+  const correlation = model.manualCorrelations.find(item => item.id === correlationId)
+  if (!correlation || correlation.note === normalizedNote) return model
+  const left = findLayerOwner(model, correlation.leftLayerId)
+  const right = findLayerOwner(model, correlation.rightLayerId)
+  if (!left || !right) throw new Error('Нельзя изменить обоснование: подошва корреляции не найдена')
+  const leftLayer = requireLayer(left, correlation.leftLayerId)
+  const rightLayer = requireLayer(right, correlation.rightLayerId)
+  const next = withActivity(
+    model,
+    model.boreholes.map(borehole => borehole.id === left.id || borehole.id === right.id ? resetReview(borehole) : borehole),
+    `${left.name}, подошва ${leftLayer.ordinal} ↔ ${right.name}, подошва ${rightLayer.ordinal}: изменено обоснование ручной корреляции. Новое обоснование: ${normalizedNote}`,
+    now
+  )
+  return {
+    ...next,
+    manualCorrelations: model.manualCorrelations.map(item => item.id === correlationId
+      ? { ...item, note: normalizedNote }
+      : item)
+  }
+}
+
 export function removeCoreManualCorrelation(
   model: CoreModel,
   correlationId: string,

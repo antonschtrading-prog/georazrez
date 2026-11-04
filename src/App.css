@@ -268,6 +268,8 @@
 .boundary-row.manual-correlation:not(.invalid) .boundary-status { color: var(--info); }
 .boundary-action { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-bg); color: var(--ink-soft); font-size: 9px; white-space: nowrap; }
 .boundary-action:hover { border-color: var(--accent-dark); background: var(--accent-lime); color: var(--ink); }
+.boundary-actions { display: flex; align-items: center; gap: 4px; }
+.correlation-note-dialog .reason-input { min-height: 120px; resize: vertical; }
 .correlation-source { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 15px; padding: 10px; background: var(--gray-90); }
 .correlation-source span { color: var(--muted-text); font-size: 9px; }
 .correlation-source strong { font-size: 11px; font-weight: 500; }
