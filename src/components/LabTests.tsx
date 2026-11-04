@@ -1,4 +1,4 @@
-import { useRef, useState, type FocusEvent } from 'react'
+import { useEffect, useRef, useState, type FocusEvent } from 'react'
 import { AlertTriangle, FileDown, FlaskConical, LoaderCircle, Plus, Trash2, Upload } from 'lucide-react'
 import { getLabTestStatistics, SOIL_CHARACTERISTICS, type IgePassport, type LabDataIssue, type LabTestField, type SoilCharacteristicKey } from '@/types/geology'
 
@@ -13,6 +13,8 @@ interface Props {
   passport: IgePassport | null
   boreholes: BoreholeOption[]
   issues: LabDataIssue[]
+  focusedTestId: string | null
+  focusToken: number
   disabled: boolean
   onAdd: (code: string) => void
   onDelete: (code: string, testId: string) => void
@@ -26,7 +28,7 @@ const formatStatistic = (value: number | null) => value === null
   ? '—'
   : Number(value.toFixed(3)).toString().replace('.', ',')
 
-export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, onDelete, onTestChange, onValueChange, onImport, onTemplate }: Props) {
+export function LabTests({ code, passport, boreholes, issues, focusedTestId, focusToken, disabled, onAdd, onDelete, onTestChange, onValueChange, onImport, onTemplate }: Props) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [importErrors, setImportErrors] = useState<string[]>([])
@@ -40,6 +42,12 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
   const statisticsBoreholes = boreholes.filter(borehole => tests.some(test => test.boreholeId === borehole.id))
   const affectedTestIds = new Set(issues.map(issue => issue.testId))
   const filledValues = tests.reduce((sum, test) => sum + SOIL_CHARACTERISTICS.filter(property => Number.isFinite(test.values[property.key])).length, 0)
+
+  useEffect(() => {
+    if (!focusedTestId) return
+    const element = document.getElementById(`lab-test-${focusedTestId}`)
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [code, focusedTestId, focusToken])
 
   const updateNumber = (
     event: FocusEvent<HTMLInputElement>,
@@ -124,7 +132,7 @@ export function LabTests({ code, passport, boreholes, issues, disabled, onAdd, o
         const testIssues = issues.filter(issue => issue.testId === test.id)
         const linkedBorehole = boreholes.find(borehole => borehole.id === test.boreholeId)
         const linkedLayerExists = linkedBorehole?.layers.some(layer => layer.id === test.layerId)
-        return <article className={`lab-test ${testIssues.length ? 'has-issues' : ''}`} key={test.id}>
+        return <article id={`lab-test-${test.id}`} className={`lab-test ${testIssues.length ? 'has-issues' : ''} ${focusedTestId === test.id ? 'focused' : ''}`} key={test.id}>
           <div className="lab-test-heading">
             <strong>{testName}</strong>
             <button type="button" disabled={disabled} onClick={() => onDelete(code, test.id)} aria-label={`Удалить ${testName}`} title="Удалить испытание; действие можно отменить"><Trash2 size={13} /></button>

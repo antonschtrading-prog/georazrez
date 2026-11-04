@@ -15,6 +15,8 @@ interface Props {
   onCharacteristicChange: (code: string, property: SoilCharacteristicKey, field: SoilCharacteristicField, value: number | string | null) => void
   boreholes: { id: string; name: string; layers: { id: string; ige: string; depth: number }[] }[]
   labIssues: LabDataIssue[]
+  focusedLabTestId: string | null
+  labFocusToken: number
   onLabTestAdd: (code: string) => void
   onLabTestDelete: (code: string, testId: string) => void
   onLabTestChange: (code: string, testId: string, field: LabTestField, value: string | number | null) => void
@@ -39,7 +41,7 @@ const statusText: Record<CodeStatus, string> = {
   manual: 'Подтверждено'
 }
 
-export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
+export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount, layerNeighbors, onNeighborSelect, onPassportChange, onCharacteristicChange, boreholes, labIssues, focusedLabTestId, labFocusToken, onLabTestAdd, onLabTestDelete, onLabTestChange, onLabTestValueChange, onLabImport, onLabTemplate, onLayerSelect, onLayerAdd, onLayerDelete, onRename, onDepthChange, onCodeChange, onToggleExcluded, onToggleReviewed }: Props) {
   const [excludeOpen, setExcludeOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -320,6 +322,8 @@ export function Inspector({ column, selectedLayerId, igePassport, igeLayerCount,
           passport={igePassport}
           boreholes={boreholes}
           issues={labIssues}
+          focusedTestId={focusedLabTestId}
+          focusToken={labFocusToken}
           disabled={disabled}
           onAdd={onLabTestAdd}
           onDelete={onLabTestDelete}

@@ -242,6 +242,28 @@
 .code-summary-link span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--muted-text); font-family: 'IBM Plex Sans', sans-serif; font-size: 9px; white-space: nowrap; }
 .code-summary-link:hover strong { color: var(--accent-dark); }
 
+.issue-dock.lab-open { height: 238px; }
+.issue-dock.lab-open.collapsed { height: 39px; }
+.lab-registry { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.lab-registry-toolbar { flex: none; min-height: 45px; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.lab-registry-search { min-width: 180px; max-width: 390px; height: 30px; flex: 1; display: flex; align-items: center; gap: 7px; padding: 0 9px; background: var(--gray-90); border-radius: 3px; color: var(--muted-text); }
+.lab-registry-search:focus-within { box-shadow: 0 0 0 1px var(--accent-dark); }
+.lab-registry-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 10px; }
+.lab-registry-search input::placeholder { color: var(--muted-text); }
+.lab-registry-toolbar select { height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-bg); color: var(--ink); font-size: 10px; }
+.lab-registry-toolbar > span { margin-left: auto; color: var(--muted-text); font-family: 'IBM Plex Mono', monospace; font-size: 9px; white-space: nowrap; }
+.lab-registry-list { flex: 1; min-height: 0; overflow-y: auto; }
+.lab-registry-row { width: 100%; min-height: 57px; display: grid; grid-template-columns: minmax(130px, 1.05fr) minmax(180px, 1.2fr) minmax(120px, .85fr) 90px; align-items: center; gap: 12px; padding: 7px 13px; border: 0; border-bottom: 1px solid var(--gray-90); border-left: 2px solid transparent; background: transparent; color: var(--ink); text-align: left; }
+.lab-registry-row:hover { background: var(--gray-90); }
+.lab-registry-row.active { background: oklch(96.8% .21 116 / .3); border-left-color: var(--accent-dark); }
+.lab-registry-row.has-issues:not(.active) { border-left-color: var(--warning); }
+.lab-registry-main, .lab-registry-location { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lab-registry-main strong, .lab-registry-location strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.lab-registry-main > span, .lab-registry-location > span { overflow: hidden; text-overflow: ellipsis; color: var(--muted-text); font-size: 9px; white-space: nowrap; }
+.lab-registry-source { overflow: hidden; text-overflow: ellipsis; color: var(--muted-text); font-size: 9px; white-space: nowrap; }
+.lab-registry-state { justify-self: end; color: var(--success); font-size: 9px; white-space: nowrap; }
+.lab-registry-state.has-issues { color: var(--danger); font-family: 'IBM Plex Mono', monospace; }
+
 .inspector-heading { align-items: center; }
 .source-badge { padding: 3px 6px; border-radius: 3px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; }
 .source-badge.verified { background: oklch(48% .12 155 / .12); color: var(--success); }
@@ -350,7 +372,8 @@
 .lab-test-issues { display: grid; gap: 4px; margin: -2px 0 10px; }
 .lab-test-issue { display: flex; align-items: flex-start; gap: 5px; color: var(--danger); font-size: 9px; line-height: 1.4; }
 .lab-test-issue svg { flex: none; margin-top: 1px; }
-.lab-test { margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line); }
+.lab-test { margin-top: 13px; padding: 11px 6px 8px; border-top: 1px solid var(--line); border-radius: 3px; transition: background-color 180ms ease-out; }
+.lab-test.focused { background: oklch(96.8% .21 116 / .24); box-shadow: inset 2px 0 0 var(--accent-dark); }
 .lab-test-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .lab-test-heading strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .lab-test-heading button { width: 27px; height: 27px; flex: none; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--danger); }
@@ -472,6 +495,8 @@
   .layer-main { grid-template-columns: 19px 62px 49px 46px minmax(0, 1fr); gap: 3px; }
   .layer-table-header { grid-template-columns: 62px 49px 46px 1fr; padding-left: 40px; gap: 3px; }
   .layer-status { font-size: 7px; }
+  .lab-registry-row { grid-template-columns: minmax(120px, 1fr) minmax(170px, 1.2fr) 82px; gap: 9px; }
+  .lab-registry-source { display: none; }
 }
 
 @media (max-width: 1023px) {
@@ -531,7 +556,8 @@
   .canvas-controls span { min-width: 38px; }
   .canvas-position-readout { left: 8px; bottom: 7px; font-size: 8px; }
   .issue-dock { height: 196px; }
-  .issue-dock.collapsed { height: 39px; }
+  .issue-dock.lab-open { height: 280px; }
+  .issue-dock.collapsed, .issue-dock.lab-open.collapsed { height: 39px; }
   .issue-dock-header { flex-wrap: wrap; }
   .dock-tabs { order: 0; min-height: 38px; }
   .dock-collapse { order: 1; margin-left: auto; }
@@ -542,6 +568,14 @@
   .issue-review-nav > span { display: none; }
   .issue-review-nav button { width: 23px; }
   .issue-filter select { max-width: 96px; }
+  .lab-registry-toolbar { flex-wrap: wrap; gap: 5px; padding: 6px 8px; }
+  .lab-registry-search { min-width: 150px; max-width: none; }
+  .lab-registry-toolbar select { max-width: 122px; }
+  .lab-registry-toolbar > span { width: 100%; margin-left: 0; text-align: right; }
+  .lab-registry-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; padding: 8px 9px; }
+  .lab-registry-location { grid-column: 1 / -1; grid-row: 2; }
+  .lab-registry-state { grid-column: 2; grid-row: 1; }
+  .lab-registry-main strong, .lab-registry-location strong, .lab-registry-main > span, .lab-registry-location > span { white-space: normal; line-height: 1.3; }
   .issue-action { display: none; }
   .issue-copy strong, .issue-copy span { white-space: normal; line-height: 1.3; }
   .app-statusbar { padding: 0 8px; font-size: 8px; }

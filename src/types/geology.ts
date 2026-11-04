@@ -237,6 +237,39 @@ export function getProjectLabIssues(project: GeoProject): LabDataIssue[] {
   return Object.entries(project.igePassports || {}).flatMap(([code, passport]) => getLabTestIssues(project.columns, code, passport))
 }
 
+export interface LabRegistryItem {
+  key: string
+  code: string
+  passportName: string
+  test: LabTest
+  boreholeName: string
+  layerLabel: string
+  issues: LabDataIssue[]
+}
+
+export function getLabRegistry(project: GeoProject): LabRegistryItem[] {
+  return Object.entries(project.igePassports || {}).flatMap(([key, passport]) => {
+    const passportIssues = getLabTestIssues(project.columns, key, passport)
+    const code = project.columns.flatMap(column => column.layers).find(layer => getIgeKey(layer.ige) === key)?.ige || key
+    return (passport.labTests || []).map(test => {
+      const column = project.columns.find(item => item.id === test.boreholeId)
+      const layerIndex = column?.layers.findIndex(layer => layer.id === test.layerId) ?? -1
+      const layer = layerIndex >= 0 ? column?.layers[layerIndex] : null
+      return {
+        key,
+        code,
+        passportName: passport.name,
+        test,
+        boreholeName: column?.name || (test.boreholeId ? `Не найдена · ${test.boreholeId}` : 'Не указана'),
+        layerLabel: layer
+          ? `Слой ${layerIndex + 1} · подошва ${layer.depth.toFixed(2).replace('.', ',')} м`
+          : test.layerId ? `Слой не найден · ${test.layerId}` : 'Не привязан к слою',
+        issues: passportIssues.filter(issue => issue.testId === test.id)
+      }
+    })
+  })
+}
+
 export type IssueKind = 'missing-name' | 'ambiguous-code' | 'missing-code' | 'invalid-depth' | 'depth-order'
 
 export interface GeoIssue {
