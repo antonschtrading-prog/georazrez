@@ -1,6 +1,6 @@
 import type ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
-import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel } from './geologyCore'
+import { createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreCodeSummary, getCoreLayerDepthIssue, getCoreLayerThickness, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, type ActivityItem, type CodeStatus, type GeoProject } from '@/types/geology'
 
 const exportStatus: Record<CodeStatus, string> = {
@@ -45,15 +45,18 @@ export async function readAxisWorkbook(file: File): Promise<number[][]> {
   return axis
 }
 
-export async function createProjectFromFiles(dxfFile: File, axisFile: File): Promise<GeoProject> {
+export async function createCoreFromFiles(dxfFile: File, axisFile: File): Promise<CoreModel> {
   const [content, axis] = await Promise.all([dxfFile.text(), readAxisWorkbook(axisFile)])
   const extraction = audit(content, false)
-  const core = createCoreModelFromExtraction(extraction, axis, {
+  return createCoreModelFromExtraction(extraction, axis, {
     title: dxfFile.name.replace(/\.dxf$/i, ''),
     sourceFile: dxfFile.name,
     axisFile: axisFile.name
   })
-  return createProjectFromCore(core)
+}
+
+export async function createProjectFromFiles(dxfFile: File, axisFile: File): Promise<GeoProject> {
+  return createProjectFromCore(await createCoreFromFiles(dxfFile, axisFile))
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -289,6 +292,10 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
     throw new Error('В проекте повреждены паспорта ИГЭ')
   }
   return parsed
+}
+
+export async function readCoreProjectFile(file: File): Promise<CoreModel> {
+  return createCoreModel(await readProjectFile(file))
 }
 
 export function addActivity(project: GeoProject, text: string, type: ActivityItem['type'] = 'manual'): GeoProject {

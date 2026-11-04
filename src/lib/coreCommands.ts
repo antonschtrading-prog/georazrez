@@ -50,6 +50,15 @@ function renumberLayers(layers: CoreLayer[]): CoreLayer[] {
   return layers.map((layer, index) => ({ ...layer, ordinal: index + 1 }))
 }
 
+export function addCoreActivity(
+  model: CoreModel,
+  text: string,
+  type: ActivityItem['type'] = 'manual',
+  now = new Date()
+): CoreModel {
+  return withActivity(model, model.boreholes, text, now, type)
+}
+
 export function renameCoreBorehole(
   model: CoreModel,
   boreholeId: string,

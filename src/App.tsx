@@ -7,19 +7,19 @@ import { IssueDock } from '@/components/IssueDock'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { createProjectFromFiles, exportProjectFile, exportWorkbook, addActivity, readProjectFile } from '@/lib/project'
+import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
-import { createCoreModel, createProjectFromCore, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel } from '@/lib/geologyCore'
-import { addCoreLayer, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
+import { createCoreModel, createProjectFromCore, getCoreCodeSummary, getCoreIssues, getCoreLayerNeighbors, getCoreModelStats, validateCoreModel, type CoreModel } from '@/lib/geologyCore'
+import { addCoreActivity, addCoreLayer, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, deleteCoreLayer, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GeoIssue, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
 const HISTORY_LIMIT = 50
 
 export default function App() {
-  const [project, setProject] = useState<GeoProject | null>(null)
-  const [past, setPast] = useState<GeoProject[]>([])
-  const [future, setFuture] = useState<GeoProject[]>([])
+  const [coreModel, setCoreModel] = useState<CoreModel | null>(null)
+  const [past, setPast] = useState<CoreModel[]>([])
+  const [future, setFuture] = useState<CoreModel[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState('borehole-1')
@@ -45,13 +45,16 @@ export default function App() {
       })
       .then(value => {
         if (!active) return
-        setProject(value)
-        setSelectedId(value.columns[0]?.id || '')
+        const core = createCoreModel(value)
+        setCoreModel(core)
+        setSelectedId(core.boreholes[0]?.id || '')
       })
       .catch(reason => setLoadError(reason instanceof Error ? reason.message : 'Ошибка загрузки'))
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
+
+  const project = useMemo(() => coreModel ? createProjectFromCore(coreModel) : null, [coreModel])
 
   useEffect(() => {
     if (!project) return
@@ -62,7 +65,6 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [project])
 
-  const coreModel = useMemo(() => project ? createCoreModel(project) : null, [project])
   const issues = useMemo(() => coreModel ? getCoreIssues(coreModel) : [], [coreModel])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
   const coreReport = useMemo(() => coreModel ? {
@@ -85,21 +87,14 @@ export default function App() {
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
 
-  const commitProject = (updater: (current: GeoProject) => GeoProject) => {
-    if (!project) return
-    const next = updater(project)
-    if (next === project) return
-    setPast(items => [...items, project].slice(-HISTORY_LIMIT))
-    setFuture([])
-    setProject(next)
-  }
-
-  const commitCore = (updater: (current: NonNullable<typeof coreModel>) => NonNullable<typeof coreModel>): boolean => {
+  const commitCore = (updater: (current: CoreModel) => CoreModel): boolean => {
     if (!coreModel) return false
     try {
       const next = updater(coreModel)
       if (next === coreModel) return false
-      commitProject(() => createProjectFromCore(next))
+      setPast(items => [...items, coreModel].slice(-HISTORY_LIMIT))
+      setFuture([])
+      setCoreModel(next)
       return true
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Не удалось выполнить команду ядра')
@@ -108,20 +103,20 @@ export default function App() {
   }
 
   const undo = () => {
-    if (!project || !past.length) return
+    if (!coreModel || !past.length) return
     const previous = past[past.length - 1]
     setPast(items => items.slice(0, -1))
-    setFuture(items => [project, ...items].slice(0, HISTORY_LIMIT))
-    setProject(addActivity(previous, 'Отменено последнее ручное действие'))
+    setFuture(items => [coreModel, ...items].slice(0, HISTORY_LIMIT))
+    setCoreModel(addCoreActivity(previous, 'Отменено последнее ручное действие'))
     toast.success('Последнее действие отменено')
   }
 
   const redo = () => {
-    if (!project || !future.length) return
+    if (!coreModel || !future.length) return
     const next = future[0]
     setFuture(items => items.slice(1))
-    setPast(items => [...items, project].slice(-HISTORY_LIMIT))
-    setProject(addActivity(next, 'Повторено отменённое действие'))
+    setPast(items => [...items, coreModel].slice(-HISTORY_LIMIT))
+    setCoreModel(addCoreActivity(next, 'Повторено отменённое действие'))
     toast.success('Действие восстановлено')
   }
 
@@ -139,7 +134,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [project, past, future])
+  }, [coreModel, past, future])
 
   const selectBorehole = (id: string) => {
     setSelectedId(id)
@@ -216,7 +211,7 @@ export default function App() {
     if (!coreModel || !selected) return
     try {
       const result = addCoreLayer(coreModel, selected.id, selectedLayer?.id || null, depth, code)
-      commitProject(() => createProjectFromCore(result.model))
+      commitCore(() => result.model)
       setSelectedLayerId(result.layerId)
       toast.success('Подошва добавлена в расчётный проект')
     } catch (reason) {
@@ -259,31 +254,31 @@ export default function App() {
   }
 
   const importProject = async (dxf: File, axis: File) => {
-    const next = await createProjectFromFiles(dxf, axis)
-    setProject(next)
+    const next = await createCoreFromFiles(dxf, axis)
+    setCoreModel(next)
     setPast([])
     setFuture([])
-    setSelectedId(next.columns[0]?.id || '')
+    setSelectedId(next.boreholes[0]?.id || '')
     setSelectedLayerId(null)
     setReviewIndex(null)
     setFitToken(value => value + 1)
-    toast.success(`Проект построен: ${next.columns.length} колонок`)
+    toast.success(`Проект построен: ${next.boreholes.length} колонок`)
   }
 
   const openSavedProject = async (file: File) => {
-    const next = await readProjectFile(file)
-    setProject(next)
+    const next = await readCoreProjectFile(file)
+    setCoreModel(next)
     setPast([])
     setFuture([])
-    setSelectedId(next.columns.find(column => !column.isExcluded)?.id || next.columns[0]?.id || '')
+    setSelectedId(next.boreholes.find(column => column.included)?.id || next.boreholes[0]?.id || '')
     setSelectedLayerId(null)
     setReviewIndex(null)
     setFitToken(value => value + 1)
-    toast.success(`Проект «${next.title}» открыт`)
+    toast.success(`Проект «${next.project.title}» открыт`)
   }
 
   if (loading) return <div className="app-loading"><div className="brand-mark">ГЕО<span>/</span>РАЗРЕЗ</div><div className="loading-line"><span /></div><p>Загружаем геологический проект…</p></div>
-  if (loadError || !project) return <div className="app-loading"><div className="brand-mark">ГЕО<span>/</span>РАЗРЕЗ</div><p>{loadError || 'Проект не найден'}</p><button type="button" className="button primary" onClick={() => window.location.reload()}>Повторить загрузку</button></div>
+  if (loadError || !coreModel || !project) return <div className="app-loading"><div className="brand-mark">ГЕО<span>/</span>РАЗРЕЗ</div><p>{loadError || 'Проект не найден'}</p><button type="button" className="button primary" onClick={() => window.location.reload()}>Повторить загрузку</button></div>
 
   return (
     <div className="app-shell">
@@ -343,8 +338,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.23 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.23</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.24 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.24</span>
       </footer>
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
