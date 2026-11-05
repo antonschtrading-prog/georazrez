@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, Palette, PanelRight, Plus, Printer, Redo2, Save, Tags, Undo2 } from 'lucide-react'
+import { BookOpen, ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, Palette, PanelRight, Plus, Printer, Redo2, Save, Tags, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoreholeList } from '@/components/BoreholeList'
 import { Inspector } from '@/components/Inspector'
@@ -8,6 +8,7 @@ import { ImportDialog } from '@/components/ImportDialog'
 import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { ProfileDocumentDialog } from '@/components/ProfileDocumentDialog'
 import { SoilLibraryDialog } from '@/components/SoilLibraryDialog'
+import { GostClassificationDialog } from '@/components/GostClassificationDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
@@ -36,6 +37,7 @@ export default function App() {
   const [geometryMode, setGeometryMode] = useState<'source' | 'verified'>('verified')
   const [importOpen, setImportOpen] = useState(false)
   const [soilLibraryOpen, setSoilLibraryOpen] = useState(false)
+  const [gostOpen, setGostOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saved')
   const [mobilePanel, setMobilePanel] = useState<'list' | 'inspector' | null>(null)
@@ -640,6 +642,7 @@ export default function App() {
               <button type="button" className={showLabels ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowLabels(value => !value)} aria-pressed={showLabels}><Tags size={15} /> Подписи</button>
               <button type="button" className={showCodes ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowCodes(value => !value)} aria-pressed={showCodes}><Layers3 size={15} /> ИГЭ</button>
               <button type="button" className="toggle-button" onClick={() => setSoilLibraryOpen(true)}><Palette size={15} /> Грунты</button>
+              <button type="button" className="toggle-button" onClick={() => setGostOpen(true)}><BookOpen size={15} /> ГОСТ</button>
               <button type="button" className="toggle-button" onClick={() => setProfileOpen(true)}><Printer size={15} /> Профиль</button>
               <button type="button" className={fictitiousPickMode ? 'toggle-button active' : 'toggle-button'} onClick={fictitiousPickMode ? () => setFictitiousPickMode(false) : startFictitiousPick} aria-pressed={fictitiousPickMode}><Plus size={15} /> {fictitiousPickMode ? 'Отменить выбор' : 'Фиктивная'}</button>
               <button type="button" className="toggle-button" onClick={() => setFitToken(value => value + 1)}><MapPin size={15} /> Обзор</button>
@@ -661,8 +664,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.44 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.44</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.45 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.45</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -815,6 +818,7 @@ export default function App() {
       </Dialog>
       {profileDocument && <ProfileDocumentDialog open={profileOpen} profile={profileDocument} verified={allReviewed} onOpenChange={setProfileOpen} />}
       <SoilLibraryDialog open={soilLibraryOpen} items={soilLibrary} onOpenChange={setSoilLibraryOpen} onAppearanceChange={changeSoilAppearance} onSelect={item => { selectCodeSummary(item); setSoilLibraryOpen(false) }} />
+      <GostClassificationDialog open={gostOpen} onOpenChange={setGostOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>
   )
