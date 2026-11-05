@@ -10,10 +10,11 @@ import { exportCoreProfileDxf } from '@/lib/profileDxfExport'
 interface Props {
   open: boolean
   profile: CoreProfileDocument
+  verified: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
+export function ProfileDocumentDialog({ open, profile, verified, onOpenChange }: Props) {
   const [requestedIndex, setRequestedIndex] = useState(0)
   const [busy, setBusy] = useState<'svg' | 'pdf' | null>(null)
   const [exportError, setExportError] = useState('')
@@ -61,7 +62,7 @@ export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
     <DialogContent className="profile-document-dialog">
       <DialogHeader>
         <DialogTitle>Оформленный профиль</DialogTitle>
-        <DialogDescription>Производные листы A3 с выбранными цветами, штриховками и легендой. Исходный DXF, глубины и коды ИГЭ не изменяются.</DialogDescription>
+        <DialogDescription>{verified ? 'Проверенная производная геометрия совпадает с рабочим экраном. ' : 'Предварительная производная геометрия: активные скважины подтверждены ещё не все. '}Производные листы A3 с выбранными цветами, штриховками и легендой. Исходный DXF, глубины и коды ИГЭ не изменяются.</DialogDescription>
       </DialogHeader>
       {sheet ? <>
         <div className="profile-document-toolbar">
@@ -84,7 +85,7 @@ export function ProfileDocumentDialog({ open, profile, onOpenChange }: Props) {
         </div>
         <div className="profile-document-footnote">
           <span>Незакрашенные интервалы показывают отсутствие полной пары границ или согласованного ИГЭ; программа не дорисовывает их автоматически.</span>
-          <span>PDF содержит локально растрированные листы; SVG сохраняет векторную геометрию. DXF сохраняется новым производным файлом и не перезаписывает источник.</span>
+          <span>PDF содержит локально растрированные листы; SVG сохраняет векторную геометрию. DXF сохраняется новым производным файлом из той же геометрии, что и проверенный экран, и не перезаписывает источник.</span>
         </div>
         {exportError && <div className="import-error" role="alert">{exportError}</div>}
       </> : <div className="issue-empty">В активном разрезе нет скважин для формирования профиля.</div>}

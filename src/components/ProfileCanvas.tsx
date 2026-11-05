@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react'
 import type { Borehole, GeoProject, Layer } from '@/types/geology'
 import type { CoreBoundaryModel } from '@/lib/geologyCore'
+import { getCoreProfileSourceGeometry, type CoreProfileDocument, type ProfilePoint } from '@/lib/profileDocument'
+import { SoilPatternDefinition } from '@/components/SoilPattern'
 
 type View = { cx: number; cy: number; w: number; h: number }
 type DepthDrag = { pointerId: number; startY: number; startDepth: number; min: number; max: number; lastDepth: number }
@@ -19,6 +21,8 @@ type FictitiousDrag = {
 interface Props {
   project: GeoProject
   boundaries: CoreBoundaryModel
+  profile: CoreProfileDocument | null
+  geometryMode: 'source' | 'verified'
   selectedId: string
   selectedLayer: Layer | null
   onSelect: (id: string) => void
@@ -33,8 +37,9 @@ interface Props {
   onFictitiousMove: (id: string, fraction?: number) => void
 }
 
-export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken, fictitiousPickMode, onFictitiousPosition, onFictitiousMove }: Props) {
+export function ProfileCanvas({ project, boundaries, profile, geometryMode, selectedId, selectedLayer, onSelect, onDepthChange, onCandidateSelect, showLabels, showCodes, fitToken, focusToken, fictitiousPickMode, onFictitiousPosition, onFictitiousMove }: Props) {
   const host = useRef<HTMLDivElement>(null)
+  const patternBaseId = `verified-${useId().replace(/:/g, '')}`
   const [size, setSize] = useState({ width: 900, height: 500 })
   const [view, setView] = useState<View>({ cx: 0, cy: 0, w: 180, h: 100 })
   const [dragDepth, setDragDepth] = useState<number | null>(null)
@@ -46,6 +51,12 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
   const candidateKeys = new Set((selectedLayer?.candidates || []).map(candidate => `${candidate.x}|${candidate.y}`))
   const displayedDepth = dragDepth ?? selectedLayer?.depth ?? 0
   const displayedLayerY = selected && selectedLayer ? selected.top - displayedDepth * 10 : selectedLayer?.y ?? 0
+  const derivedGeometry = useMemo(() => profile ? getCoreProfileSourceGeometry(profile) : null, [profile])
+  const verified = geometryMode === 'verified' && derivedGeometry !== null
+  const sourceCentroid = (points: ProfilePoint[]): ProfilePoint => ({
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length
+  })
 
   useEffect(() => {
     if (!host.current) return
@@ -112,25 +123,25 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
     const left = view.cx - view.w / 2 - 10, right = view.cx + view.w / 2 + 10
     const top = view.cy + view.h / 2 + 10, bottom = view.cy - view.h / 2 - 10
     return {
-      segments: project.geometry.segments.filter(s => Math.max(s.x1, s.x2) >= left && Math.min(s.x1, s.x2) <= right && Math.max(s.y1, s.y2) >= bottom && Math.min(s.y1, s.y2) <= top),
-      boundaries: boundaries.items.filter(item =>
+      segments: verified ? [] : project.geometry.segments.filter(s => Math.max(s.x1, s.x2) >= left && Math.min(s.x1, s.x2) <= right && Math.max(s.y1, s.y2) >= bottom && Math.min(s.y1, s.y2) <= top),
+      boundaries: verified ? [] : boundaries.items.filter(item =>
         !item.pinchoutId &&
         (item.status === 'connected' || item.issues.some(issue => issue.kind === 'crossing')) &&
         item.y1 !== null && item.y2 !== null && Number.isFinite(item.y1) && Number.isFinite(item.y2) &&
         Math.max(item.x1, item.x2) >= left && Math.min(item.x1, item.x2) <= right &&
         Math.max(item.y1, item.y2) >= bottom && Math.min(item.y1, item.y2) <= top
       ),
-      pinchouts: boundaries.pinchouts.filter(item =>
+      pinchouts: verified ? [] : boundaries.pinchouts.filter(item =>
         Math.max(item.upperLeftX, item.upperRightX, item.x, item.lowerX) >= left &&
         Math.min(item.upperLeftX, item.upperRightX, item.x, item.lowerX) <= right &&
         Math.max(item.upperLeftY, item.upperRightY, item.y, item.lowerY) >= bottom &&
         Math.min(item.upperLeftY, item.upperRightY, item.y, item.lowerY) <= top
       ),
-      circles: project.geometry.circles.filter(c => c.x + c.r >= left && c.x - c.r <= right && c.y + c.r >= bottom && c.y - c.r <= top),
-      texts: project.geometry.texts.filter(t => t.x >= left && t.x <= right && t.y >= bottom && t.y <= top),
+      circles: verified ? [] : project.geometry.circles.filter(c => c.x + c.r >= left && c.x - c.r <= right && c.y + c.r >= bottom && c.y - c.r <= top),
+      texts: verified ? [] : project.geometry.texts.filter(t => t.x >= left && t.x <= right && t.y >= bottom && t.y <= top),
       columns: project.columns.filter(c => c.x >= left && c.x <= right)
     }
-  }, [project, boundaries, view])
+  }, [project, boundaries, view, verified])
 
   const layerLimits = () => {
     if (!selected || !selectedLayer) return { min: 0.01, max: 1000 }
@@ -146,14 +157,17 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
   const viewBox = `${view.cx - view.w / 2} ${-view.cy - view.h / 2} ${view.w} ${view.h}`
 
   return (
-    <div className={`profile-canvas ${fictitiousPickMode ? 'fictitious-picking' : ''}`} ref={host}>
+    <div className={`profile-canvas ${fictitiousPickMode ? 'fictitious-picking' : ''} ${verified ? 'verified-mode' : ''}`} ref={host} data-geometry-mode={verified ? 'verified' : 'source'}>
       <svg
         viewBox={viewBox}
         className="profile-svg"
         role="img"
-        aria-label={fictitiousPickMode ? 'Укажите место фиктивной скважины на геологическом разрезе' : 'Интерактивный геологический разрез'}
+        aria-label={fictitiousPickMode ? 'Укажите место фиктивной скважины на геологическом разрезе' : verified ? 'Проверенный производный геологический разрез' : 'Интерактивный геологический разрез с исходными линиями DXF'}
         onWheel={event => zoom(event.deltaY > 0 ? 1.16 : 0.86, event.clientX, event.clientY)}
       >
+        <defs>
+          {verified && derivedGeometry && derivedGeometry.bands.map((band, index) => band.appearance.hatch !== 'none' && <SoilPatternDefinition key={band.id} id={`${patternBaseId}-${index}`} hatch={band.appearance.hatch} />)}
+        </defs>
         <rect
           x={view.cx - view.w / 2} y={-view.cy - view.h / 2} width={view.w} height={view.h}
           fill="var(--canvas-bg)" className="canvas-pan-surface"
@@ -182,12 +196,33 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
           onPointerCancel={() => { drag.current = null }}
         />
         <g transform="scale(1,-1)">
-          <g className="geo-lines">
+          {verified && derivedGeometry && <g className="verified-bands" data-verified-bands>
+            {derivedGeometry.bands.map((band, index) => {
+              const points = band.sourcePoints.map(point => `${point.x},${point.y}`).join(' ')
+              return <g key={band.id} data-verified-band={band.id} data-code-key={band.codeKey || ''} data-pinchout={band.pinchout ? 'true' : 'false'}>
+                <polygon points={points} fill={band.appearance.color} stroke="none" />
+                {band.appearance.hatch !== 'none' && <polygon points={points} fill={`url(#${patternBaseId}-${index})`} stroke="none" />}
+                {!band.codeKey && <polygon points={points} fill="none" className="verified-unresolved-band" vectorEffect="non-scaling-stroke" />}
+              </g>
+            })}
+          </g>}
+          {verified && derivedGeometry && <g className="verified-lines" data-verified-lines>
+            {derivedGeometry.lines.map(line => <polyline
+              key={line.id}
+              data-verified-line={line.id}
+              data-line-kind={line.kind}
+              data-manual={line.manual ? 'true' : 'false'}
+              className={`verified-line ${line.kind} ${line.manual ? 'manual' : ''}`}
+              points={line.sourcePoints.map(point => `${point.x},${point.y}`).join(' ')}
+              vectorEffect="non-scaling-stroke"
+            />)}
+          </g>}
+          {!verified && <g className="geo-lines" data-source-dxf-lines>
             {visible.segments.map((s, i) => (
               <line key={`${s.handle || 's'}-${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} vectorEffect="non-scaling-stroke" />
             ))}
-          </g>
-          <g className="calculated-boundaries">
+          </g>}
+          {!verified && <g className="calculated-boundaries">
             {visible.boundaries.map(boundary => <line
               key={boundary.id}
               className={`calculated-boundary ${boundary.manual ? 'manual' : ''} ${boundary.manualCorrelation ? 'manual-correlation' : ''} ${boundary.status === 'invalid' ? 'invalid' : ''} ${boundary.issues.some(issue => issue.kind === 'crossing') ? 'crossing' : ''}`}
@@ -199,8 +234,8 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
               x1={boundary.x1} y1={boundary.y1!} x2={boundary.x2} y2={boundary.y2!}
               vectorEffect="non-scaling-stroke"
             />)}
-          </g>
-          <g className="pinchout-boundaries">
+          </g>}
+          {!verified && <g className="pinchout-boundaries">
             {visible.pinchouts.map(pinchout => <g key={pinchout.id} data-pinchout={pinchout.id} data-gap-decision={pinchout.decisionId}>
               <line className="pinchout-lower" x1={pinchout.lowerX} y1={pinchout.lowerY} x2={pinchout.x} y2={pinchout.y} vectorEffect="non-scaling-stroke" />
               <polyline className="pinchout-upper" points={`${pinchout.upperLeftX},${pinchout.upperLeftY} ${pinchout.x},${pinchout.y} ${pinchout.upperRightX},${pinchout.upperRightY}`} vectorEffect="non-scaling-stroke" />
@@ -208,19 +243,41 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
                 <title>Явная точка выклинивания · {pinchout.decisionId}</title>
               </circle>
             </g>)}
-          </g>
-          {(showCodes || selectedLayer) && detail && <g className="geo-circles">
+          </g>}
+          {!verified && (showCodes || selectedLayer) && detail && <g className="geo-circles">
             {visible.circles.filter(c => showCodes || candidateKeys.has(`${c.x}|${c.y}`)).map((c, i) => {
               const candidate = candidateKeys.has(`${c.x}|${c.y}`)
               return <circle className={candidate ? 'candidate-circle' : ''} key={`${c.handle || 'c'}-${i}`} cx={c.x} cy={c.y} r={c.r} vectorEffect="non-scaling-stroke" />
             })}
           </g>}
-          {selected && selectedLayer && detail && <g className="candidate-links">
+          {!verified && selected && selectedLayer && detail && <g className="candidate-links">
             {selectedLayer.candidates.map((candidate, index) => <line key={`${candidate.x}-${candidate.y}-${index}`} x1={selected.x} y1={displayedLayerY} x2={candidate.x} y2={candidate.y} vectorEffect="non-scaling-stroke" />)}
             <line className="selected-layer-boundary" x1={selected.x - 3} y1={displayedLayerY} x2={selected.x + 3} y2={displayedLayerY} vectorEffect="non-scaling-stroke" />
           </g>}
         </g>
-        {detail && <g className="geo-texts">
+        {verified && derivedGeometry && <>
+          {showCodes && <g className="verified-band-labels">
+            {derivedGeometry.bands.filter(band => band.codeKey).map(band => {
+              const label = sourceCentroid(band.sourcePoints)
+              return <text key={`label-${band.id}`} x={label.x} y={-label.y} textAnchor="middle">{band.code}</text>
+            })}
+          </g>}
+          <g className="verified-boreholes" data-verified-boreholes>
+            {derivedGeometry.boreholes.map(borehole => <g key={borehole.id} data-verified-borehole={borehole.id} data-kind={borehole.kind}>
+              <line className={`verified-borehole-line ${borehole.kind}`} x1={borehole.sourceX} y1={-borehole.sourceTop} x2={borehole.sourceX} y2={-borehole.sourceBottom} vectorEffect="non-scaling-stroke" />
+              {borehole.ticks.map(tick => <g key={tick.id} data-verified-tick={tick.id}>
+                <line className="verified-depth-tick" x1={borehole.sourceX - 1.5} y1={-tick.sourceY} x2={borehole.sourceX + 1.5} y2={-tick.sourceY} vectorEffect="non-scaling-stroke" />
+                {showLabels && <text className="verified-depth-label" x={borehole.sourceX + 2} y={-tick.sourceY - 0.4}>{tick.depth.toFixed(2).replace('.', ',')}</text>}
+                {showCodes && tick.code && <text className={`verified-code-label ${tick.status}`} x={borehole.sourceX - 2} y={-tick.sourceY - 0.4} textAnchor="end">{tick.code}</text>}
+              </g>)}
+              {showLabels && <>
+                <text className="verified-borehole-name" x={borehole.sourceX} y={-borehole.sourceTop - 5} textAnchor="middle">{borehole.name}</text>
+                <text className="verified-borehole-pk" x={borehole.sourceX} y={-borehole.sourceTop - 2} textAnchor="middle">ПК {borehole.pk.toFixed(2).replace('.', ',')}{borehole.kind === 'fictitious' ? ' · фиктивная' : ''}</text>
+              </>}
+            </g>)}
+          </g>
+        </>}
+        {!verified && detail && <g className="geo-texts">
           {visible.texts.map((t, i) => {
             const isCode = project.geometry.circles.some(c => Math.hypot(c.x - t.x, c.y - t.y) <= c.r + 0.2)
             if (isCode && !showCodes) return null
@@ -317,7 +374,7 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
             </g>
           )
         })}
-        {selected && selectedLayer && selectedLayer.status === 'ambiguous' && detail && !selected.isExcluded && <g transform="scale(1,-1)" className="candidate-hit-targets">
+        {!verified && selected && selectedLayer && selectedLayer.status === 'ambiguous' && detail && !selected.isExcluded && <g transform="scale(1,-1)" className="candidate-hit-targets">
           {selectedLayer.candidates.map((candidate, index) => {
             const circle = project.geometry.circles.find(item => item.x === candidate.x && item.y === candidate.y)
             return <circle
@@ -408,7 +465,7 @@ export function ProfileCanvas({ project, boundaries, selectedId, selectedLayer, 
         <button type="button" onClick={() => zoom(0.8)} title="Увеличить" aria-label="Увеличить"><Plus size={16} /></button>
         <button type="button" onClick={() => focus(selected)} title="Показать выбранную скважину" aria-label="Показать выбранную скважину"><Crosshair size={16} /></button>
       </div>
-      <div className="canvas-position-readout">В поле: {visible.columns.length} · Границы: {boundaries.connected} · Разрывы: {boundaries.gaps + boundaries.invalid} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}{dragFictitious ? ` · Preview положения: ${(dragFictitious.fraction * 100).toFixed(2).replace('.', ',')}% · модель пока не изменена` : ''}</div>
+      <div className="canvas-position-readout">{verified ? 'Проверенный разрез · только производная геометрия · исходный DXF сохранён' : 'Рабочий режим · исходный DXF + расчётные границы'} · В поле: {visible.columns.length} · Границы: {boundaries.connected} · Разрывы: {boundaries.gaps + boundaries.invalid} · Колесо — масштаб · Перетаскивание — панорама{selectedLayer ? ` · Подошва: ${displayedDepth.toFixed(2).replace('.', ',')} м · потяните маркер` : ''}{dragFictitious ? ` · Preview положения: ${(dragFictitious.fraction * 100).toFixed(2).replace('.', ',')}% · модель пока не изменена` : ''}</div>
     </div>
   )
 }

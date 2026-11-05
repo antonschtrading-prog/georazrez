@@ -94,6 +94,28 @@ export interface CoreProfileDocument {
   unresolvedBands: number
 }
 
+export interface CoreProfileSourceGeometry {
+  bands: ProfileBand[]
+  lines: ProfileLine[]
+  boreholes: ProfileBorehole[]
+}
+
+/** Единая геометрия в координатах DXF для проверенного экрана и обратной выгрузки. */
+export function getCoreProfileSourceGeometry(profile: CoreProfileDocument): CoreProfileSourceGeometry {
+  const unique = <T extends { id: string }>(select: (sheet: CoreProfileSheet) => T[]): T[] => {
+    const items = new Map<string, T>()
+    for (const sheet of profile.sheets) {
+      for (const item of select(sheet)) if (!items.has(item.id)) items.set(item.id, item)
+    }
+    return [...items.values()]
+  }
+  return {
+    bands: unique(sheet => sheet.bands),
+    lines: unique(sheet => sheet.lines),
+    boreholes: unique(sheet => sheet.boreholes)
+  }
+}
+
 function centroid(points: ProfilePoint[]): ProfilePoint {
   return points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 })
 }

@@ -33,6 +33,7 @@ export default function App() {
   const [focusToken, setFocusToken] = useState(0)
   const [showLabels, setShowLabels] = useState(true)
   const [showCodes, setShowCodes] = useState(true)
+  const [geometryMode, setGeometryMode] = useState<'source' | 'verified'>('verified')
   const [importOpen, setImportOpen] = useState(false)
   const [soilLibraryOpen, setSoilLibraryOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -128,6 +129,8 @@ export default function App() {
     : { previous: null, next: null }
   const activeColumns = project?.columns.filter(column => !column.isExcluded) || []
   const reviewedCount = activeColumns.filter(column => column.isReviewed).length
+  const allReviewed = activeColumns.length > 0 && reviewedCount === activeColumns.length
+  const effectiveGeometryMode = allReviewed ? geometryMode : 'source'
   const layerCount = activeColumns.reduce((sum, column) => sum + column.layers.length, 0)
   const correlationSourceBoreholeId = correlationBoundary?.status === 'left-only'
     ? correlationBoundary.leftBoreholeId
@@ -540,8 +543,13 @@ export default function App() {
   const toggleSelectedReviewed = () => {
     if (!selected) return
     const reviewing = !selected.isReviewed
+    const completesReview = reviewing && activeColumns.every(column => column.id === selected.id || column.isReviewed)
     if (commitCore(current => setCoreBoreholeReviewed(current, selected.id, reviewing))) {
+      if (completesReview) setGeometryMode('verified')
       toast.success(reviewing ? 'Скважина отмечена как проверенная' : 'Скважина возвращена на проверку')
+      if (completesReview) toast.success('Все активные скважины подтверждены', {
+        description: 'Включён проверенный разрез: исходные линии DXF скрыты, геометрия построена заново из канонической модели.'
+      })
     }
   }
 
@@ -624,6 +632,10 @@ export default function App() {
           <div className="viewer-toolbar">
             <div className="viewer-title"><span className="panel-kicker">РАБОЧАЯ ОБЛАСТЬ</span><h1>Инженерно-геологический разрез</h1></div>
             <div className="viewer-actions">
+              <div className="geometry-mode-switch" role="group" aria-label="Представление геометрии разреза">
+                <button type="button" data-geometry-mode-button="source" className={effectiveGeometryMode === 'source' ? 'toggle-button active' : 'toggle-button'} onClick={() => setGeometryMode('source')} aria-pressed={effectiveGeometryMode === 'source'} title="Исходные линии DXF и расчётные границы для проверки">Исходный DXF</button>
+                <button type="button" data-geometry-mode-button="verified" className={effectiveGeometryMode === 'verified' ? 'toggle-button active' : 'toggle-button'} disabled={!allReviewed} onClick={() => setGeometryMode('verified')} aria-pressed={effectiveGeometryMode === 'verified'} title={allReviewed ? 'Производная геометрия без исходных линий DXF' : `Подтверждено ${reviewedCount} из ${activeColumns.length} активных скважин`}>Проверенный разрез</button>
+              </div>
               <button type="button" className={showLabels ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowLabels(value => !value)} aria-pressed={showLabels}><Tags size={15} /> Подписи</button>
               <button type="button" className={showCodes ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowCodes(value => !value)} aria-pressed={showCodes}><Layers3 size={15} /> ИГЭ</button>
               <button type="button" className="toggle-button" onClick={() => setSoilLibraryOpen(true)}><Palette size={15} /> Грунты</button>
@@ -637,9 +649,9 @@ export default function App() {
             <div><strong>{layerCount}</strong><span>подошв слоёв</span></div>
             <div className="metric-warning"><strong>{issues.filter(i => i.kind === 'ambiguous-code').length}</strong><span>неоднозначных ИГЭ</span></div>
             <div><strong>{reviewedCount}</strong><span>проверено · {project.columns.filter(c => c.sourceNamed).length} имён DXF</span></div>
-            <span className="real-data-badge">Исходный DXF сохранён</span>
+            <span className="real-data-badge">{effectiveGeometryMode === 'verified' ? 'Производная геометрия · исходный DXF сохранён' : 'Исходный DXF сохранён'}</span>
           </div>
-          <ProfileCanvas project={project} boundaries={boundaries!} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} fictitiousPickMode={fictitiousPickMode} onFictitiousPosition={pickFictitiousPosition} onFictitiousMove={openFictitiousEdit} />
+          <ProfileCanvas project={project} boundaries={boundaries!} profile={profileDocument} geometryMode={effectiveGeometryMode} selectedId={selected?.id || ''} selectedLayer={selectedLayer} onSelect={id => { selectBorehole(id); setFocusToken(value => value + 1) }} onDepthChange={changeDepth} onCandidateSelect={code => { if (selectedLayer) changeCode(selectedLayer.id, code, 'manual') }} showLabels={showLabels} showCodes={showCodes} fitToken={fitToken} focusToken={focusToken} fictitiousPickMode={fictitiousPickMode} onFictitiousPosition={pickFictitiousPosition} onFictitiousMove={openFictitiousEdit} />
           <IssueDock issues={reviewItems} activity={journalEntries} codeSummary={codeSummary} boundaries={boundaries!} activeIssueId={activeIssueId} activeCodeKey={activeCodeKey} activeLayerId={selectedLayerId} onSelect={selectIssue} onSelectCode={selectCodeSummary} onSelectBoundary={selectBoundary} onCorrelateBoundary={openCorrelation} onEditCorrelation={openCorrelationNote} onRemoveCorrelation={removeCorrelation} onDecideGap={openGapDecision} onEditInactiveGapDecision={openInactiveGapDecision} onRemoveGapDecision={removeGapDecision} onSelectActivity={selectJournalEntry} onStep={stepIssue} />
         </section>
         <div className="mobile-panel-close inspector-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
@@ -648,8 +660,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.42 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.42</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.43 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.43</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -795,7 +807,7 @@ export default function App() {
           </form>
         </DialogContent>
       </Dialog>
-      {profileDocument && <ProfileDocumentDialog open={profileOpen} profile={profileDocument} onOpenChange={setProfileOpen} />}
+      {profileDocument && <ProfileDocumentDialog open={profileOpen} profile={profileDocument} verified={allReviewed} onOpenChange={setProfileOpen} />}
       <SoilLibraryDialog open={soilLibraryOpen} items={soilLibrary} onOpenChange={setSoilLibraryOpen} onAppearanceChange={changeSoilAppearance} onSelect={item => { selectCodeSummary(item); setSoilLibraryOpen(false) }} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

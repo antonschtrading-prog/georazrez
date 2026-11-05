@@ -1,6 +1,6 @@
+import { getCoreProfileSourceGeometry } from './profileDocument'
 import type {
   CoreProfileDocument,
-  CoreProfileSheet,
   ProfileBand,
   ProfileBorehole,
   ProfileLine,
@@ -170,12 +170,6 @@ class DxfWriter {
   }
 }
 
-function uniqueById<T extends { id: string }>(sheets: CoreProfileSheet[], select: (sheet: CoreProfileSheet) => T[]): T[] {
-  const values = new Map<string, T>()
-  for (const sheet of sheets) for (const item of select(sheet)) if (!values.has(item.id)) values.set(item.id, item)
-  return [...values.values()]
-}
-
 function addBand(writer: DxfWriter, band: ProfileBand, layerNames: Map<string, string>) {
   if (!band.codeKey) return
   const layer = layerNames.get(band.codeKey)!
@@ -225,9 +219,7 @@ function addBorehole(writer: DxfWriter, borehole: ProfileBorehole) {
 }
 
 export function createCoreProfileDxf(profile: CoreProfileDocument): CoreProfileDxfExport {
-  const bands = uniqueById(profile.sheets, sheet => sheet.bands)
-  const lines = uniqueById(profile.sheets, sheet => sheet.lines)
-  const boreholes = uniqueById(profile.sheets, sheet => sheet.boreholes)
+  const { bands, lines, boreholes } = getCoreProfileSourceGeometry(profile)
   const soilKeys = [...new Set(bands.flatMap(band => band.codeKey ? [band.codeKey] : []))].sort()
   const layerNames = new Map(soilKeys.map((key, index) => [key, `GEO_SOIL_${String(index + 1).padStart(2, '0')}`]))
   const layers = [
