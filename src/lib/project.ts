@@ -83,8 +83,30 @@ export async function readAxisWorkbook(file: File): Promise<number[][]> {
   return axis
 }
 
+/** Декодирует DXF, сохраняя корректный UTF-8 даже при ошибочном ANSI_1251 в заголовке. */
+export function decodeDxfBuffer(buffer: ArrayBuffer): string {
+  let utf8: string | null = null
+  try {
+    utf8 = new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
+    // Ниже кодовая страница применяется только к файлу, который не является UTF-8.
+  }
+
+  const bytes = new Uint8Array(buffer)
+  const header = new TextDecoder('latin1').decode(bytes.subarray(0, 65536))
+  const codepage = header.match(
+    /\$DWGCODEPAGE[ \t]*(?:\r\n|\n|\r)[ \t]*3[ \t]*(?:\r\n|\n|\r)[ \t]*([^\r\n]+)/i
+  )?.[1].trim().toUpperCase()
+  if (utf8 !== null) return utf8
+  return new TextDecoder(codepage === 'ANSI_1251' ? 'windows-1251' : 'utf-8').decode(buffer)
+}
+
+export async function readDxfFile(file: File): Promise<string> {
+  return decodeDxfBuffer(await file.arrayBuffer())
+}
+
 export async function createCoreFromFiles(dxfFile: File, axisFile: File): Promise<CoreModel> {
-  const [content, axis] = await Promise.all([dxfFile.text(), readAxisWorkbook(axisFile)])
+  const [content, axis] = await Promise.all([readDxfFile(dxfFile), readAxisWorkbook(axisFile)])
   const extraction = audit(content, false)
   return createCoreModelFromExtraction(extraction, axis, {
     title: dxfFile.name.replace(/\.dxf$/i, ''),
