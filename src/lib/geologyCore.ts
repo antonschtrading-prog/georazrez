@@ -102,6 +102,10 @@ export interface CoreInterpolationPreviewLayer {
   depth: number
   leftDepth: number
   rightDepth: number
+  leftPresent: boolean
+  rightPresent: boolean
+  /** Сторона исходной скважины, у которой отсутствующий слой явно выклинивается. */
+  pinchoutAt: 'left' | 'right' | null
   code: string
   leftCode: string
   rightCode: string
@@ -114,6 +118,8 @@ export interface CoreFictitiousPreview {
   leftName: string
   rightName: string
   fraction: number
+  method: FictitiousInterpolation['method']
+  warnings: string[]
   x: number
   top: number
   bottom: number
@@ -198,7 +204,7 @@ export interface CoreBoundaryModel {
   inactiveGapDecisions: CoreInactiveGapDecision[]
 }
 
-export type CoreInterpolationIssueKind = 'fictitious-outdated' | 'fictitious-invalid'
+export type CoreInterpolationIssueKind = 'fictitious-outdated' | 'fictitious-invalid' | 'fictitious-manual'
 export type CoreReviewKind = IssueKind | 'invalid-boundary' | CoreInterpolationIssueKind
 
 /** Одна задача проекта: исходная геология, граница или производное правило. */
@@ -633,22 +639,39 @@ export function getCoreFictitiousPreview(
   if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
     throw new Error('Положение фиктивной скважины должно быть строго между источниками')
   }
-  if (!left.layers.length || left.layers.length !== right.layers.length) {
-    throw new Error('Для явной интерполяции у исходных скважин должно быть одинаковое ненулевое число подошв')
+  const warnings: string[] = []
+  const invalidSourceDepths = left.layers.some((_, index) => getCoreLayerDepthIssue(left.layers, index)) ||
+    right.layers.some((_, index) => getCoreLayerDepthIssue(right.layers, index))
+  let method: FictitiousInterpolation['method'] = 'linear'
+  if (!left.layers.length || !right.layers.length) {
+    method = 'manual'
+    warnings.push('У одной из исходных скважин нет подошв. Фиктивная будет создана без автоматических слоёв для ручного заполнения.')
+  } else if (invalidSourceDepths) {
+    method = 'manual'
+    warnings.push('В исходных скважинах есть некорректные глубины или нарушен их порядок. Фиктивная будет создана без автоматических слоёв; сначала проверьте источники.')
+  } else if (left.layers.length !== right.layers.length) {
+    method = 'linear-pinchout'
+    const shorter = left.layers.length < right.layers.length ? left : right
+    warnings.push(`Разное число подошв: ${left.layers.length} / ${right.layers.length}. Отсутствующие слои явно выклиниваются у скважины ${shorter.name}; нулевые слои в источники не добавляются.`)
   }
-  const layers = left.layers.map((leftLayer, index) => {
+  const layers: CoreInterpolationPreviewLayer[] = method === 'manual' ? [] : Array.from({ length: Math.max(left.layers.length, right.layers.length) }, (_, index) => {
+    const leftLayer = left.layers[index]
     const rightLayer = right.layers[index]
-    if (getCoreLayerDepthIssue(left.layers, index) || getCoreLayerDepthIssue(right.layers, index)) {
-      throw new Error(`Подошва ${index + 1}: сначала устраните ошибки глубин у исходных скважин`)
-    }
-    const leftCode = leftLayer.igeCode.trim()
-    const rightCode = rightLayer.igeCode.trim()
-    const codeAgreed = Boolean(leftCode) && getIgeKey(leftCode) === getIgeKey(rightCode)
+    // Отсутствующая подошва сходится к последней подошве короткой колонки.
+    // Строго между источниками это даёт положительные мощности без фиктивного нулевого слоя.
+    const leftDepth = leftLayer?.bottomDepth ?? left.layers[left.layers.length - 1].bottomDepth
+    const rightDepth = rightLayer?.bottomDepth ?? right.layers[right.layers.length - 1].bottomDepth
+    const leftCode = leftLayer?.igeCode.trim() || ''
+    const rightCode = rightLayer?.igeCode.trim() || ''
+    const codeAgreed = Boolean(leftLayer && rightLayer && leftCode) && getIgeKey(leftCode) === getIgeKey(rightCode)
     return {
       ordinal: index + 1,
-      depth: leftLayer.bottomDepth + (rightLayer.bottomDepth - leftLayer.bottomDepth) * fraction,
-      leftDepth: leftLayer.bottomDepth,
-      rightDepth: rightLayer.bottomDepth,
+      depth: leftDepth + (rightDepth - leftDepth) * fraction,
+      leftDepth,
+      rightDepth,
+      leftPresent: Boolean(leftLayer),
+      rightPresent: Boolean(rightLayer),
+      pinchoutAt: leftLayer ? rightLayer ? null : 'right' : 'left',
       code: codeAgreed ? leftCode : '',
       leftCode,
       rightCode,
@@ -664,6 +687,8 @@ export function getCoreFictitiousPreview(
     leftName: left.name,
     rightName: right.name,
     fraction,
+    method,
+    warnings,
     x,
     top: left.drawing.top + (right.drawing.top - left.drawing.top) * fraction,
     bottom: left.drawing.bottom + (right.drawing.bottom - left.drawing.bottom) * fraction,
@@ -994,6 +1019,16 @@ export function getCoreInterpolationReviewItems(model: CoreModel): CoreReviewIte
         detail: `${reason instanceof Error ? reason.message : 'Не удалось выполнить preview'}. Модель не изменена; проверьте источники или удалите фиктивную явной командой.`
       })
       continue
+    }
+    if (preview.method === 'manual' && column.layers.length === 0) {
+      items.push({
+        id: `interpolation-manual-${column.id}`,
+        source: 'interpolation',
+        kind: 'fictitious-manual',
+        boreholeId: column.id,
+        title: `${column.name}: требуется ручное заполнение`,
+        detail: 'Фиктивная создана без автоматических подошв, потому что интерполяция невозможна. Добавьте слои вручную или проверьте источники и явно подтвердите пересчёт.'
+      })
     }
     const currentFingerprint = getCoreFictitiousSourceFingerprint(model, rule.leftBoreholeId, rule.rightBoreholeId)
     // Проекты 0.36 без слепка проверяются консервативно по ещё интерполированным полям.
@@ -1330,7 +1365,7 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
       const left = model.boreholes[leftIndex]
       const right = model.boreholes[rightIndex]
       const pairKey = rule ? `${rule.leftBoreholeId}|${rule.rightBoreholeId}` : ''
-      const validRule = Boolean(rule && rule.method === 'linear' && rule.note.trim() && rule.createdAt &&
+      const validRule = Boolean(rule && ['linear', 'linear-pinchout', 'manual'].includes(rule.method) && rule.note.trim() && rule.createdAt &&
         (rule.sourceFingerprint === undefined || Boolean(rule.sourceFingerprint.trim())) &&
         Number.isFinite(rule.fraction) && rule.fraction > 0 && rule.fraction < 1 &&
         left?.kind === 'dxf' && right?.kind === 'dxf' && leftIndex >= 0 && leftIndex < rightIndex &&

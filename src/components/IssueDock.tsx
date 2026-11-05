@@ -89,6 +89,7 @@ export function IssueDock({ issues, activity, codeSummary, boundaries, activeIss
               <option value="invalid-boundary">Некорректные границы</option>
               <option value="fictitious-outdated">Источники интерполяции изменились</option>
               <option value="fictitious-invalid">Недействительные правила интерполяции</option>
+              <option value="fictitious-manual">Ручное заполнение фиктивных</option>
               <option value="ambiguous-code">Неоднозначные ИГЭ</option>
               <option value="missing-code">ИГЭ не найден</option>
               <option value="invalid-depth">Некорректная глубина</option>

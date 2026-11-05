@@ -169,6 +169,7 @@ export default function App() {
   }, [coreModel, fictitiousLeft, fictitiousRight, parsedFictitiousFraction])
   const fictitiousUnchanged = Boolean(editingFictitious?.interpolation && fictitiousPreview.data &&
     !reviewItems.some(item => item.source === 'interpolation' && item.boreholeId === editingFictitiousId) &&
+    editingFictitious.interpolation.method === fictitiousPreview.data.method &&
     editingFictitious.interpolation.fraction === parsedFictitiousFraction &&
     editingFictitious.interpolation.note === fictitiousNote.trim() &&
     editingFictitious.drawing.x === fictitiousPreview.data.x &&
@@ -660,8 +661,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.43.1 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.43.1</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.44 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.44</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -752,7 +753,7 @@ export default function App() {
         <DialogContent className="exclude-dialog fictitious-dialog">
           <DialogHeader>
             <DialogTitle>{editingFictitious ? 'Пересчёт фиктивной скважины' : 'Новая фиктивная скважина'}</DialogTitle>
-            <DialogDescription>Проверьте будущие глубины и коды до сохранения. Линейная интерполяция выполняется только по этой явной команде; исходные скважины и DXF не изменяются.</DialogDescription>
+            <DialogDescription>Проверьте будущие глубины и коды до сохранения. При разном числе подошв отсутствующие слои выклиниваются у исходной скважины; если расчёт невозможен, фиктивная создаётся для ручного заполнения. Исходные скважины и DXF не изменяются.</DialogDescription>
           </DialogHeader>
           <form onSubmit={event => { event.preventDefault(); submitFictitious() }}>
             <div className="fictitious-endpoints">
@@ -781,6 +782,10 @@ export default function App() {
             </div>
             {fictitiousPreview.error && <div className="import-error" role="alert">{fictitiousPreview.error}</div>}
             {fictitiousPreview.data && <div className="fictitious-preview" data-fictitious-preview>
+              <div className="fictitious-preview-method" data-fictitious-method={fictitiousPreview.data.method}>
+                <strong>{fictitiousPreview.data.method === 'linear-pinchout' ? 'Интерполяция с выклиниванием' : fictitiousPreview.data.method === 'manual' ? 'Ручное заполнение' : 'Линейная интерполяция'}</strong>
+                {fictitiousPreview.data.warnings.map(warning => <p key={warning}>{warning}</p>)}
+              </div>
               <div className="fictitious-preview-summary">
                 <span>ПК <strong>{fictitiousPreview.data.pk.toFixed(2).replace('.', ',')}</strong></span>
                 <span>Подошв <strong>{fictitiousPreview.data.layers.length}</strong></span>
@@ -791,15 +796,16 @@ export default function App() {
                 <div className="fictitious-preview-head" role="row"><span>№</span><span>{fictitiousPreview.data.leftName}</span><span>Расчёт</span><span>{fictitiousPreview.data.rightName}</span></div>
                 {fictitiousPreview.data.layers.map(layer => <div className={layer.codeAgreed ? '' : 'needs-code-review'} role="row" key={layer.ordinal} data-preview-layer={layer.ordinal}>
                   <span>{layer.ordinal}</span>
-                  <span>{layer.leftDepth.toFixed(2).replace('.', ',')} м<small>{layer.leftCode || 'ИГЭ —'}</small></span>
+                  <span>{layer.leftPresent ? `${layer.leftDepth.toFixed(2).replace('.', ',')} м` : 'Выклинивание'}<small>{layer.leftCode || (layer.leftPresent ? 'ИГЭ —' : `у ${fictitiousPreview.data.leftName}`)}</small></span>
                   <span><strong>{layer.depth.toFixed(3).replace('.', ',')} м</strong><small>{layer.codeAgreed ? layer.code : 'ИГЭ требует ручного выбора'}</small></span>
-                  <span>{layer.rightDepth.toFixed(2).replace('.', ',')} м<small>{layer.rightCode || 'ИГЭ —'}</small></span>
+                  <span>{layer.rightPresent ? `${layer.rightDepth.toFixed(2).replace('.', ',')} м` : 'Выклинивание'}<small>{layer.rightCode || (layer.rightPresent ? 'ИГЭ —' : `у ${fictitiousPreview.data.rightName}`)}</small></span>
                 </div>)}
               </div>
+              {fictitiousPreview.data.layers.length === 0 && <p>После сохранения добавьте подошвы вручную в инспекторе. Скважина останется в очереди проверки, пока слои не будут добавлены.</p>}
               {fictitiousPreview.data.layers.some(layer => !layer.codeAgreed) && <p>Разные или отсутствующие коды не выбираются автоматически. Такие слои после сохранения попадут в очередь проверки.</p>}
             </div>}
             <label className="field-label correlation-note-label" htmlFor="fictitious-note">Инженерное обоснование</label>
-            <textarea id="fictitious-note" className="reason-input" value={fictitiousNote} onChange={event => setFictitiousNote(event.target.value)} placeholder="Укажите основание для добавления расчётной скважины и применения линейной интерполяции" required />
+            <textarea id="fictitious-note" className="reason-input" value={fictitiousNote} onChange={event => setFictitiousNote(event.target.value)} placeholder="Укажите основание для добавления фиктивной скважины, интерполяции или выклинивания" required />
             <div className="import-actions">
               <button type="button" className="button secondary" onClick={closeFictitious}>Отмена</button>
               <button type="submit" className="button primary" disabled={!fictitiousPreview.data || !fictitiousName.trim() || !fictitiousNote.trim()}>{editingFictitious ? 'Подтвердить пересчёт' : 'Добавить фиктивную'}</button>

@@ -353,8 +353,10 @@ export function Inspector({ column, coreColumn, boundaryIssues, interpolationIss
           <div className="verification-heading"><strong>Проверка скважины</strong><span className={column.isReviewed ? 'reviewed' : ''}>{column.isReviewed ? 'Подтверждена' : hasIssues ? 'Есть проблемы' : 'Готова к проверке'}</span></div>
           <p>{column.isReviewed
             ? `Подтверждено ${column.reviewedAt}. Любая последующая правка снимет этот статус.`
-            : interpolationIssues.length
-              ? 'Источники или условия сохранённого правила изменились. Проверьте preview и явно подтвердите пересчёт; автоматическая подмена слоёв запрещена.'
+            : interpolationIssues.some(item => item.kind === 'fictitious-manual')
+              ? 'Автоматические подошвы не созданы. Добавьте слои вручную либо проверьте источники и явно подтвердите пересчёт.'
+              : interpolationIssues.length
+                ? 'Источники или условия сохранённого правила изменились. Проверьте preview и явно подтвердите пересчёт; автоматическая подмена слоёв запрещена.'
               : hasGeologicalIssues && boundaryIssues.length
                 ? 'Сначала решите вопросы по имени, глубинам, кодам ИГЭ и некорректным границам корреляции.'
                 : boundaryIssues.length
@@ -364,7 +366,7 @@ export function Inspector({ column, coreColumn, boundaryIssues, interpolationIss
                     : 'Подтвердите, что имя, глубины, коды ИГЭ и связанные границы проверены инженером.'}</p>
           {interpolationIssues.length > 0 && <div className="review-boundary-issues interpolation-review-issues" role="list" aria-label="Проблемы правила интерполяции">
             {interpolationIssues.map(item => <div className="review-boundary-issue" role="listitem" key={item.id}>
-              <strong>{item.kind === 'fictitious-outdated' ? 'Требуется проверка актуальности' : 'Правило недействительно'}</strong>
+              <strong>{item.kind === 'fictitious-outdated' ? 'Требуется проверка актуальности' : item.kind === 'fictitious-manual' ? 'Требуется ручное заполнение' : 'Правило недействительно'}</strong>
               <span>{item.detail}</span>
             </div>)}
           </div>}

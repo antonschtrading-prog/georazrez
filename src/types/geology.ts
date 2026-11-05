@@ -41,7 +41,7 @@ export type BoreholeKind = 'dxf' | 'fictitious'
 
 /** Сохранённое правило расчётной скважины; не является исходным объектом DXF. */
 export interface FictitiousInterpolation {
-  method: 'linear'
+  method: 'linear' | 'linear-pinchout' | 'manual'
   leftBoreholeId: string
   rightBoreholeId: string
   /** Доля расстояния от левой исходной скважины к правой. */

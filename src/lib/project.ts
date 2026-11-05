@@ -18,6 +18,12 @@ const exportDepthSource = {
   interpolated: 'Линейная интерполяция по сохранённому правилу'
 } as const
 
+const fictitiousMethodLabels = {
+  linear: 'Линейная, явная команда',
+  'linear-pinchout': 'Линейная, выклинивание у исходной скважины',
+  manual: 'Ручное заполнение без автоматических подошв'
+} as const
+
 function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || typeof value === 'number' && Number.isFinite(value)
 }
@@ -25,7 +31,7 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
 function isValidInterpolation(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const rule = value as Record<string, unknown>
-  return rule.method === 'linear' && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
+  return ['linear', 'linear-pinchout', 'manual'].includes(String(rule.method)) && typeof rule.leftBoreholeId === 'string' && typeof rule.rightBoreholeId === 'string' &&
     typeof rule.fraction === 'number' && Number.isFinite(rule.fraction) && typeof rule.note === 'string' && typeof rule.createdAt === 'string' &&
     (rule.sourceFingerprint === undefined || typeof rule.sourceFingerprint === 'string')
 }
@@ -341,22 +347,23 @@ export async function exportWorkbook(project: GeoProject) {
     const ruleIssue = interpolationReviewItems.find(item => item.boreholeId === column.id)
     const ruleState = ruleIssue?.kind === 'fictitious-invalid' ? 'Правило недействительно'
       : ruleIssue?.kind === 'fictitious-outdated' ? 'Источники изменены · требуется явный пересчёт'
-        : 'Актуально на момент последнего подтверждения'
-    for (const layer of column.layers) {
+        : ruleIssue?.kind === 'fictitious-manual' ? 'Требуется ручное заполнение слоёв'
+          : 'Актуально на момент последнего подтверждения'
+    for (const layer of column.layers.length ? column.layers : [null]) {
       const row = fictitiousSheet.addRow({
         id: column.id,
         name: column.name,
         pk: formatPk(column.pk),
-        method: rule?.method === 'linear' ? 'Линейная, явная команда' : 'Правило отсутствует',
+        method: rule ? fictitiousMethodLabels[rule.method] : 'Правило отсутствует',
         left: left?.name || rule?.leftBoreholeId || '',
         right: right?.name || rule?.rightBoreholeId || '',
         fraction: rule ? rule.fraction * 100 : null,
         note: rule?.note || '',
         createdAt: rule?.createdAt || '',
-        ordinal: layer.ordinal,
-        depth: layer.bottomDepth,
-        code: layer.igeCode,
-        status: exportStatus[layer.codeStatus],
+        ordinal: layer?.ordinal ?? null,
+        depth: layer?.bottomDepth ?? null,
+        code: layer?.igeCode || '',
+        status: layer ? exportStatus[layer.codeStatus] : 'Требуется ручное добавление слоёв',
         x: column.coordinates?.x ?? null,
         y: column.coordinates?.y ?? null,
         ruleState
@@ -536,7 +543,8 @@ export async function exportWorkbook(project: GeoProject) {
     'depth-order': 'Порядок подошв',
     'invalid-boundary': 'Некорректная граница',
     'fictitious-outdated': 'Источники интерполяции изменились',
-    'fictitious-invalid': 'Правило интерполяции недействительно'
+    'fictitious-invalid': 'Правило интерполяции недействительно',
+    'fictitious-manual': 'Ручное заполнение фиктивной'
   } as const
   const reviewItems = getCoreSectionReport(coreModel, boundaryModel).items
   for (const item of reviewItems) {

@@ -802,6 +802,9 @@ function assertNoFictitiousLinks(model: CoreModel, borehole: CoreBorehole) {
 function interpolatedLayers(model: CoreModel, boreholeId: string, preview: CoreFictitiousPreview): CoreLayer[] {
   const left = requireBorehole(model, preview.leftBoreholeId)
   const right = requireBorehole(model, preview.rightBoreholeId)
+  const ruleLabel = preview.method === 'linear-pinchout'
+    ? 'Линейная интерполяция с выклиниванием отсутствующих слоёв у исходной скважины'
+    : 'Линейная интерполяция'
   return preview.layers.map(item => {
     const leftLayer = left.layers[item.ordinal - 1]
     const rightLayer = right.layers[item.ordinal - 1]
@@ -810,13 +813,13 @@ function interpolatedLayers(model: CoreModel, boreholeId: string, preview: CoreF
       item.leftCode ? {
         code: item.leftCode,
         x: left.drawing.x,
-        y: leftLayer.drawingY,
+        y: leftLayer?.drawingY ?? preview.top,
         reason: `Код левой исходной скважины ${left.name}`
       } : null,
       item.rightCode ? {
         code: item.rightCode,
         x: right.drawing.x,
-        y: rightLayer.drawingY,
+        y: rightLayer?.drawingY ?? preview.top,
         reason: `Код правой исходной скважины ${right.name}`
       } : null
     ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
@@ -831,8 +834,8 @@ function interpolatedLayers(model: CoreModel, boreholeId: string, preview: CoreF
       codeStatus: item.codeAgreed ? 'interpolated' : bothCodes ? 'ambiguous' : 'not-found',
       candidates,
       codeSource: item.codeAgreed
-        ? `Линейная интерполяция ${left.name} ↔ ${right.name}: нормализованные коды совпадают`
-        : `Линейная интерполяция ${left.name} ↔ ${right.name}: коды различаются или отсутствуют, требуется ручной выбор`,
+        ? `${ruleLabel} ${left.name} ↔ ${right.name}: нормализованные коды совпадают`
+        : `${ruleLabel} ${left.name} ↔ ${right.name}: коды различаются или отсутствуют, требуется ручной выбор`,
       depthSource: 'interpolated',
       sourceRefs: { depthText: '', codeTexts: [] }
     }
@@ -875,7 +878,7 @@ export function addCoreFictitiousBorehole(
     sourceNamed: true,
     kind: 'fictitious',
     interpolation: {
-      method: 'linear',
+      method: preview.method,
       leftBoreholeId,
       rightBoreholeId,
       fraction,
@@ -896,10 +899,15 @@ export function addCoreFictitiousBorehole(
   const boreholes = [...model.boreholes]
   boreholes.splice(rightIndex, 0, fictitious)
   const affected = new Set([leftBoreholeId, rightBoreholeId])
+  const ruleDescription = preview.method === 'manual'
+    ? 'ручное заполнение без автоматических подошв'
+    : preview.method === 'linear-pinchout'
+      ? `линейная интерполяция с выклиниванием у исходной скважины, ${layers.length} подошв`
+      : `линейная интерполяция ${layers.length} подошв`
   const next = withActivity(
     model,
     boreholes.map(item => affected.has(item.id) ? resetReview(item) : item),
-    `${fictitious.name}: добавлена фиктивная скважина между ${left.name} и ${right.name}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}% · линейная интерполяция ${layers.length} подошв. Обоснование: ${note.trim()}`,
+    `${fictitious.name}: добавлена фиктивная скважина между ${left.name} и ${right.name}, положение ${(fraction * 100).toFixed(2).replace('.', ',')}% · ${ruleDescription}. Обоснование: ${note.trim()}`,
     now,
     'manual',
     { category: 'fictitious', boreholeIds: [id, leftBoreholeId, rightBoreholeId] }
@@ -923,7 +931,7 @@ export function updateCoreFictitiousBorehole(
   const preview = getCoreFictitiousPreview(model, rule.leftBoreholeId, rule.rightBoreholeId, fraction)
   const layers = interpolatedLayers(model, boreholeId, preview)
   const sourceFingerprint = getCoreFictitiousSourceFingerprint(model, rule.leftBoreholeId, rule.rightBoreholeId)
-  const unchanged = rule.fraction === fraction && rule.note === note.trim() && rule.sourceFingerprint === sourceFingerprint &&
+  const unchanged = rule.method === preview.method && rule.fraction === fraction && rule.note === note.trim() && rule.sourceFingerprint === sourceFingerprint &&
     borehole.drawing.x === preview.x && borehole.drawing.top === preview.top && borehole.drawing.bottom === preview.bottom &&
     borehole.layers.length === layers.length && borehole.layers.every((layer, index) =>
       layer.bottomDepth === layers[index].bottomDepth && layer.igeCode === layers[index].igeCode &&
@@ -931,7 +939,7 @@ export function updateCoreFictitiousBorehole(
   if (unchanged) return model
   const nextBorehole = resetReview({
     ...borehole,
-    interpolation: { ...rule, fraction, note: note.trim(), sourceFingerprint },
+    interpolation: { ...rule, method: preview.method, fraction, note: note.trim(), sourceFingerprint },
     drawing: { x: preview.x, top: preview.top, bottom: preview.bottom, levels: layers.map(layer => layer.drawingY) },
     pk: preview.pk,
     coordinates: preview.coordinates ? { ...preview.coordinates } : null,

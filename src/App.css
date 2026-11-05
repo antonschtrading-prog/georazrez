@@ -258,7 +258,7 @@
 .issue-row.active { background: oklch(96.8% .21 116 / .3); box-shadow: inset 2px 0 0 var(--accent-dark); }
 .issue-icon { flex: none; color: var(--warning); }
 .issue-icon.missing-code, .issue-icon.invalid-depth, .issue-icon.depth-order, .issue-icon.invalid-boundary, .issue-icon.fictitious-invalid { color: var(--danger); }
-.issue-icon.fictitious-outdated { color: var(--info); }
+.issue-icon.fictitious-outdated, .issue-icon.fictitious-manual { color: var(--info); }
 .issue-icon.missing-name { color: var(--info); }
 .issue-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-copy strong { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -486,6 +486,8 @@
 .fictitious-endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .fictitious-endpoints.secondary-fields { margin-top: 12px; }
 .fictitious-preview { margin-top: 16px; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); padding: 12px 0; }
+.fictitious-preview-method { margin-bottom: 12px; padding: 10px 12px; background: var(--gray-90); font-size: 11px; line-height: 1.5; }
+.fictitious-preview-method p { margin: 5px 0 0; color: var(--muted-text); }
 .fictitious-preview-summary { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 10px; color: var(--muted-text); font-size: 10px; }
 .fictitious-preview-summary strong { margin-left: 4px; color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-variant-numeric: tabular-nums; }
 .fictitious-preview-table { display: grid; gap: 0; }
