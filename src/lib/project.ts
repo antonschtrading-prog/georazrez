@@ -1,4 +1,4 @@
-import type ExcelJS from 'exceljs'
+import ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
 import { CORE_ACTIVITY_CATEGORY_LABELS, createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreJournalEntries, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityCategory, type ActivityItem, type CodeStatus, type GeoProject, type SoilHatch } from '@/types/geology'
@@ -73,7 +73,6 @@ function numericCell(value: ExcelJS.CellValue): number | null {
 }
 
 export async function readAxisWorkbook(file: File): Promise<number[][]> {
-  const { default: ExcelJS } = await import('exceljs')
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(await file.arrayBuffer() as any)
   const sheet = workbook.worksheets[0]
@@ -135,7 +134,6 @@ function downloadBlob(blob: Blob, fileName: string) {
 }
 
 export async function exportWorkbook(project: GeoProject) {
-  const { default: ExcelJS } = await import('exceljs')
   const coreModel = createCoreModel(project)
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'ГеоРазрез'
