@@ -5,7 +5,7 @@ import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATC
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
-  'vertical-only': 'По положению кружка',
+  'vertical-only': 'По положению подписи',
   ambiguous: 'Требует ручного выбора',
   'not-found': 'ИГЭ не найден',
   manual: 'Подтверждено вручную',

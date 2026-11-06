@@ -383,7 +383,7 @@ export function createCoreModelFromExtraction(
         igeKey: layer.ige.trim() ? getIgeKey(layer.ige) : null,
         codeStatus: layer.status,
         candidates: layer.candidates.map(candidate => ({ ...candidate })),
-        codeSource: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение кружка' : 'Требует проверки',
+        codeSource: layer.status === 'topology' ? 'Границы слоя' : layer.status === 'vertical-only' ? 'Положение подписи' : 'Требует проверки',
         depthSource: 'dxf',
         sourceRefs: {
           depthText: extraction.depths[index].accepted[layerIndex]?.text.handle || '',

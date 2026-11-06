@@ -343,12 +343,82 @@ function assignCodes(columns, depths, circleCodes, topology, soilScale = 100) {
   });
 }
 
+/* Альтернативное оформление: подписи ИГЭ и генезиса — отдельные TEXT,
+ * а боковые линии одной скважины разбиты на участки по слоям.
+ * Схема включается только по повторяющимся парам «генезис + код» на слое подписей.
+ */
+const textCodeRe = /^[0-9]+[а-яa-z]?$/i;
+const genesisRe = /\b[IVXLCDM]+\s*\(/i;
+
+function isTextLabelLayout(geo) {
+  const labels = geo.texts.filter(t => /ГЕОЛОГИЯ_ПОДПИСИ/i.test(t.layer || ''));
+  const geneses = labels.filter(t => genesisRe.test(t.text.trim()));
+  const codes = labels.filter(t => textCodeRe.test(t.text.trim()));
+  const pairs = geneses.filter(g => codes.some(c => Math.abs(c.y - g.y) <= 0.25 && c.x > g.x && c.x - g.x <= 40));
+  return pairs.length >= 3 && geo.texts.some(t => /ГЕОЛОГИЯ_ВЫРАБОТКИ/i.test(t.layer || ''));
+}
+
+function extractSegmentedColumns(geo) {
+  const base = extractColumns(geo);
+  return base.map(c => {
+    const sides = geo.segments.filter(s => /ГЕОЛОГИЯ/i.test(s.layer || '') &&
+      close(s.x1, s.x2, 0.06) && Math.abs(s.y2 - s.y1) >= 0.05 &&
+      close(Math.abs((s.x1 + s.x2) / 2 - c.x), 1, 0.12));
+    if (!sides.length) return c;
+    const sideTop = Math.max(...sides.map(s => Math.max(s.y1, s.y2)));
+    const sideBottom = Math.min(...sides.map(s => Math.min(s.y1, s.y2)));
+    const levels = [];
+    const addLevel = y => {
+      if (y >= sideBottom - 0.12 && y <= sideTop + 0.12 && !levels.some(v => close(v, y, 0.035))) levels.push(y);
+    };
+    for (const s of sides) { addLevel(s.y1); addLevel(s.y2); }
+    for (const t of geo.segments.filter(s => /ГЕОЛОГИЯ/i.test(s.layer || '') &&
+      close(s.y1, s.y2, 0.06) && close(Math.abs(s.x2 - s.x1), 2, 0.3) &&
+      close((s.x1 + s.x2) / 2, c.x, 0.3))) addLevel((t.y1 + t.y2) / 2);
+    levels.sort((a, b) => b - a);
+    return { ...c, sideTop, sideBottom, top: sideTop, bottom: sideBottom, levels };
+  });
+}
+
+function assignSegmentedNames(columns, texts) {
+  const labels = texts.filter(t => /ГЕОЛОГИЯ_ВЫРАБОТКИ/i.test(t.layer || '') &&
+    /^[СC]-\d+(?:[.,]\d+)?[А-ЯЁA-Z0-9]*,?$/i.test(t.text.trim()));
+  const pairs = [];
+  for (let i = 0; i < columns.length; i++) for (let j = 0; j < labels.length; j++) {
+    const c = columns[i], t = labels[j], dx = Math.abs(t.x - c.x), dy = t.y - c.sideTop;
+    if (dx <= 18 && dy >= -1 && dy <= 40) pairs.push({ i, j, score: dx + Math.abs(dy - 2) * 0.12 });
+  }
+  pairs.sort((a, b) => a.score - b.score);
+  const names = columns.map((_, i) => 'Скв. ' + (i + 1)), nameHandles = columns.map(() => '');
+  const usedI = new Set(), usedJ = new Set(), usedNames = new Set();
+  for (const p of pairs) {
+    const name = labels[p.j].text.trim(), key = name.toLowerCase();
+    if (usedI.has(p.i) || usedJ.has(p.j) || usedNames.has(key)) continue;
+    names[p.i] = name; nameHandles[p.i] = labels[p.j].handle || '';
+    usedI.add(p.i); usedJ.add(p.j); usedNames.add(key);
+  }
+  return { names, nameHandles };
+}
+
+function buildTextCodes(geo) {
+  const codeTexts = new Set();
+  const circles = geo.texts.filter(t => /ГЕОЛОГИЯ_ПОДПИСИ/i.test(t.layer || '') && textCodeRe.test(t.text.trim()))
+    .map(t => {
+      codeTexts.add(t);
+      return { x: t.x, y: t.y, r: 0, handle: '', text: t, code: t.text.trim() };
+    });
+  return { circles, codeTexts };
+}
+
 function audit(content, reviewed = false) {
-  const geo = parseDXF(content), columns = extractColumns(geo);
-  const { names, nameHandles } = assignNameAssignments(columns, geo.texts);
-  const circleCodes = buildCircleCodes(geo);
+  const geo = parseDXF(content), textLabelLayout = isTextLabelLayout(geo);
+  const columns = textLabelLayout ? extractSegmentedColumns(geo) : extractColumns(geo);
+  const { names, nameHandles } = textLabelLayout
+    ? assignSegmentedNames(columns, geo.texts)
+    : assignNameAssignments(columns, geo.texts);
+  const circleCodes = textLabelLayout ? buildTextCodes(geo) : buildCircleCodes(geo);
   // Это не встроенное исключение: handle передан только как результат ручной проверки этого файла.
-  const ignored = reviewed ? new Set(['3034B']) : new Set();
+  const ignored = reviewed && !textLabelLayout ? new Set(['3034B']) : new Set();
   const depths = extractDepths(columns, geo, circleCodes, 100, ignored);
   const topology = buildTopology(columns, geo);
   const codes = assignCodes(columns, depths, circleCodes, topology, 100);
@@ -356,4 +426,5 @@ function audit(content, reviewed = false) {
 }
 
 
-export { parseDXF, extractColumns, assignNames, buildCircleCodes, extractDepths, buildTopology, assignCodes, audit };
+export { parseDXF, extractColumns, assignNames, buildCircleCodes, extractDepths, buildTopology, assignCodes,
+  isTextLabelLayout, extractSegmentedColumns, buildTextCodes, audit };
