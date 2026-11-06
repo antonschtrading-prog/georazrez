@@ -1,6 +1,5 @@
 import {
   DEFAULT_SOIL_APPEARANCE,
-  getCoreBoreholeBoundaryIssues,
   getCoreBoundaryModel,
   getCoreIssues,
   getCoreFictitiousPreview,
@@ -272,6 +271,35 @@ export function setCoreBoreholeIncluded(
   )
 }
 
+interface CoreReviewBlockers {
+  geological: Set<string>
+  boundaries: Set<string>
+  interpolation: Set<string>
+}
+
+function getCoreReviewBlockers(model: CoreModel): CoreReviewBlockers {
+  const boundaries = getCoreBoundaryModel(model)
+  const boundaryIds = new Set<string>()
+  for (const item of boundaries.items) {
+    if (item.status !== 'invalid') continue
+    boundaryIds.add(item.leftBoreholeId)
+    boundaryIds.add(item.rightBoreholeId)
+  }
+  return {
+    geological: new Set(getCoreIssues(model).map(issue => issue.boreholeId)),
+    boundaries: boundaryIds,
+    interpolation: new Set(getCoreInterpolationReviewItems(model).map(issue => issue.boreholeId))
+  }
+}
+
+function getCoreReviewBlockReason(borehole: CoreBorehole, blockers: CoreReviewBlockers): string {
+  if (!borehole.included) return 'Исключённая колонка не подтверждается'
+  if (blockers.geological.has(borehole.id)) return 'Сначала решите все проблемы этой скважины'
+  if (blockers.boundaries.has(borehole.id)) return 'Сначала устраните некорректные границы корреляции этой скважины'
+  if (blockers.interpolation.has(borehole.id)) return 'Сначала проверьте актуальность правила интерполяции и при необходимости явно подтвердите пересчёт'
+  return ''
+}
+
 export function setCoreBoreholeReviewed(
   model: CoreModel,
   boreholeId: string,
@@ -280,15 +308,8 @@ export function setCoreBoreholeReviewed(
 ): CoreModel {
   const borehole = requireBorehole(model, boreholeId)
   if (!borehole.included) throw new Error('Исключённая колонка не подтверждается')
-  if (reviewed && getCoreIssues(model).some(issue => issue.boreholeId === boreholeId)) {
-    throw new Error('Сначала решите все проблемы этой скважины')
-  }
-  if (reviewed && getCoreBoreholeBoundaryIssues(getCoreBoundaryModel(model), boreholeId).length) {
-    throw new Error('Сначала устраните некорректные границы корреляции этой скважины')
-  }
-  if (reviewed && getCoreInterpolationReviewItems(model).some(issue => issue.boreholeId === boreholeId)) {
-    throw new Error('Сначала проверьте актуальность правила интерполяции и при необходимости явно подтвердите пересчёт')
-  }
+  const blockReason = reviewed ? getCoreReviewBlockReason(borehole, getCoreReviewBlockers(model)) : ''
+  if (blockReason) throw new Error(blockReason)
   if (borehole.review.reviewed === reviewed) return model
   const next: CoreBorehole = {
     ...borehole,
@@ -302,6 +323,39 @@ export function setCoreBoreholeReviewed(
     'manual',
     { category: 'review', boreholeIds: [boreholeId] }
   )
+}
+
+export interface CoreBulkReviewResult {
+  model: CoreModel
+  confirmedIds: string[]
+  skippedIds: string[]
+  alreadyReviewedIds: string[]
+}
+
+/** Одна обратимая команда: подтверждает только активные скважины без блокирующих проблем. */
+export function reviewAllEligibleCoreBoreholes(model: CoreModel, now = new Date()): CoreBulkReviewResult {
+  const blockers = getCoreReviewBlockers(model)
+  const confirmedIds: string[] = [], skippedIds: string[] = [], alreadyReviewedIds: string[] = []
+  for (const borehole of model.boreholes) {
+    if (!borehole.included) continue
+    if (borehole.review.reviewed) alreadyReviewedIds.push(borehole.id)
+    else if (getCoreReviewBlockReason(borehole, blockers)) skippedIds.push(borehole.id)
+    else confirmedIds.push(borehole.id)
+  }
+  if (!confirmedIds.length) return { model, confirmedIds, skippedIds, alreadyReviewedIds }
+  const confirmed = new Set(confirmedIds), reviewedAt = now.toLocaleString('ru-RU')
+  const boreholes = model.boreholes.map(borehole => confirmed.has(borehole.id)
+    ? { ...borehole, review: { reviewed: true, reviewedAt } }
+    : borehole)
+  const next = withActivity(
+    model,
+    boreholes,
+    `Массовое подтверждение проверки: ${confirmedIds.length}; с нерешёнными проблемами оставлено: ${skippedIds.length}`,
+    now,
+    'manual',
+    { category: 'review', boreholeIds: confirmedIds }
+  )
+  return { model: next, confirmedIds, skippedIds, alreadyReviewedIds }
 }
 
 export type CorePassportField = 'name' | 'description' | 'notes'

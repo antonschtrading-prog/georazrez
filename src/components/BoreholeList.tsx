@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, X } from 'lucide-react'
+import { CheckCheck, Search, X } from 'lucide-react'
 import { formatPk, type GeoIssue, type GeoProject } from '@/types/geology'
 import type { CoreBoundaryModel } from '@/lib/geologyCore'
 
@@ -9,11 +9,12 @@ interface Props {
   boundaries: CoreBoundaryModel
   selectedId: string
   onSelect: (id: string) => void
+  onReviewAll: () => void
 }
 
 type Filter = 'all' | 'issues' | 'controls' | 'reviewed'
 
-export function BoreholeList({ project, issues, boundaries, selectedId, onSelect }: Props) {
+export function BoreholeList({ project, issues, boundaries, selectedId, onSelect, onReviewAll }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const boundaryCounts = useMemo(() => {
@@ -30,6 +31,7 @@ export function BoreholeList({ project, issues, boundaries, selectedId, onSelect
     ...boundaryCounts.keys()
   ]), [issues, boundaryCounts])
   const reviewedCount = project.columns.filter(column => column.isReviewed && !column.isExcluded).length
+  const activeCount = project.columns.filter(column => !column.isExcluded).length
   const filtered = project.columns.filter(column => {
     const matchesQuery = column.name.toLowerCase().includes(query.trim().toLowerCase()) || formatPk(column.pk).includes(query.trim())
     const matchesFilter = filter === 'all' || (filter === 'issues' && problemIds.has(column.id)) ||
@@ -54,6 +56,15 @@ export function BoreholeList({ project, issues, boundaries, selectedId, onSelect
         <button type="button" role="tab" aria-selected={filter === 'controls'} className={filter === 'controls' ? 'active' : ''} onClick={() => setFilter('controls')}>Контроль</button>
         <button type="button" role="tab" aria-selected={filter === 'reviewed'} className={filter === 'reviewed' ? 'active' : ''} onClick={() => setFilter('reviewed')}>Готово <span>{reviewedCount}</span></button>
       </div>
+      <button
+        type="button"
+        className="button secondary bulk-review-button"
+        onClick={onReviewAll}
+        disabled={!activeCount || reviewedCount === activeCount}
+        title="Подтвердить все активные скважины без нерешённых проблем. Проблемные будут пропущены; действие можно отменить."
+      >
+        <CheckCheck size={15} /> Подтвердить все скважины
+      </button>
       <div className="borehole-list" role="list">
         {filtered.map(column => {
           const geologicalCount = issues.filter(issue => issue.boreholeId === column.id).length

@@ -15,7 +15,7 @@ import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProject
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreJournalEntries, getCoreLayerNeighbors, getCoreModelStats, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreBoundaryItem, type CoreJournalEntry, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
 import { buildCoreProfileDocument } from '@/lib/profileDocument'
-import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, changeCoreSoilAppearance, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation, type CoreSoilAppearanceField } from '@/lib/coreCommands'
+import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, changeCoreSoilAppearance, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, reviewAllEligibleCoreBoreholes, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation, type CoreSoilAppearanceField } from '@/lib/coreCommands'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -556,6 +556,31 @@ export default function App() {
     }
   }
 
+  const reviewAllBoreholes = () => {
+    if (!coreModel) return
+    const result = reviewAllEligibleCoreBoreholes(coreModel)
+    if (!result.confirmedIds.length) {
+      if (result.skippedIds.length) {
+        toast.info('Нет скважин, готовых к массовому подтверждению', {
+          description: `Сначала решите проблемы у ${result.skippedIds.length} оставшихся скважин. Уже подтверждённые не изменены.`
+        })
+      } else toast.info('Все активные скважины уже подтверждены')
+      return
+    }
+    if (!commitCore(() => result.model)) return
+    const confirmed = new Set(result.confirmedIds)
+    const completesReview = activeColumns.length > 0 && activeColumns.every(column => column.isReviewed || confirmed.has(column.id))
+    if (completesReview) setGeometryMode('verified')
+    toast.success(`Подтверждено скважин: ${result.confirmedIds.length}`, {
+      description: result.skippedIds.length
+        ? `Пропущено с нерешёнными проблемами: ${result.skippedIds.length}. Действие можно отменить через Ctrl+Z.`
+        : 'Проблемных скважин не осталось. Действие можно отменить через Ctrl+Z.'
+    })
+    if (completesReview) toast.success('Все активные скважины подтверждены', {
+      description: 'Включён проверенный разрез: исходные линии DXF скрыты, геометрия построена заново из канонической модели.'
+    })
+  }
+
   const toggleSelectedExcluded = (reason: string) => {
     if (!selected) return
     const excluding = !selected.isExcluded
@@ -630,7 +655,7 @@ export default function App() {
       <main className={`workspace ${mobilePanel === 'list' ? 'show-list' : ''} ${mobilePanel === 'inspector' ? 'show-inspector' : ''}`}>
         {mobilePanel && <button type="button" className="mobile-backdrop" aria-label="Закрыть панель" onClick={() => setMobilePanel(null)} />}
         <div className="mobile-panel-close list-close"><button type="button" onClick={() => setMobilePanel(null)}>Закрыть</button></div>
-        <BoreholeList project={project} issues={issues} boundaries={boundaries!} selectedId={selected?.id || ''} onSelect={id => { selectBorehole(id); setMobilePanel(null) }} />
+        <BoreholeList project={project} issues={issues} boundaries={boundaries!} selectedId={selected?.id || ''} onSelect={id => { selectBorehole(id); setMobilePanel(null) }} onReviewAll={reviewAllBoreholes} />
         <section className="workspace-center">
           <div className="viewer-toolbar">
             <div className="viewer-title"><span className="panel-kicker">РАБОЧАЯ ОБЛАСТЬ</span><h1>Инженерно-геологический разрез</h1></div>
@@ -664,8 +689,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.46 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.46</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.46.1 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.46.1</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
