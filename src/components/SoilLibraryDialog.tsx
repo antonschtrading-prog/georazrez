@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { MapPin, Search, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { SoilSwatch } from '@/components/SoilSwatch'
@@ -11,10 +11,46 @@ interface Props {
   items: CoreSoilLibraryItem[]
   onOpenChange: (open: boolean) => void
   onAppearanceChange: (code: string, field: CoreSoilAppearanceField, value: string) => void
+  onNameChange: (code: string, value: string) => void
   onSelect: (item: CoreSoilLibraryItem) => void
 }
 
-export function SoilLibraryDialog({ open, items, onOpenChange, onAppearanceChange, onSelect }: Props) {
+function SoilNameField({ item, onNameChange }: { item: CoreSoilLibraryItem; onNameChange: Props['onNameChange'] }) {
+  const [draft, setDraft] = useState(item.passportName)
+  const cancelled = useRef(false)
+
+  return <input
+    className="soil-name-control"
+    value={draft}
+    onChange={event => setDraft(event.target.value)}
+    onBlur={() => {
+      if (cancelled.current) {
+        cancelled.current = false
+        return
+      }
+      const value = draft.trim()
+      if (value !== item.passportName.trim()) onNameChange(item.key, value)
+      else setDraft(item.passportName)
+    }}
+    onKeyDown={event => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        event.currentTarget.blur()
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        cancelled.current = true
+        setDraft(item.passportName)
+        event.currentTarget.blur()
+      }
+    }}
+    placeholder="Наименование не заполнено"
+    aria-label={`Наименование ИГЭ ${item.code}`}
+    title="Введите наименование вручную. Enter — сохранить, Escape — отменить редактирование."
+  />
+}
+
+export function SoilLibraryDialog({ open, items, onOpenChange, onAppearanceChange, onNameChange, onSelect }: Props) {
   const [query, setQuery] = useState('')
   const normalizedQuery = query.trim().toLocaleLowerCase('ru-RU')
   const filtered = useMemo(() => items.filter(item => !normalizedQuery || [
@@ -27,7 +63,9 @@ export function SoilLibraryDialog({ open, items, onOpenChange, onAppearanceChang
   const customized = items.filter(item => item.appearanceCustomized).length
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="soil-library-dialog">
+    <DialogContent className="soil-library-dialog" onEscapeKeyDown={event => {
+      if ((event.target as HTMLElement).closest('.soil-name-control')) event.preventDefault()
+    }}>
       <DialogHeader>
         <DialogTitle>Библиотека грунтов</DialogTitle>
         <DialogDescription>Все непустые коды ИГЭ активного разреза. Цвет и штриховка выбираются вручную и применяются ко всем слоям с нормализованным кодом.</DialogDescription>
@@ -51,7 +89,7 @@ export function SoilLibraryDialog({ open, items, onOpenChange, onAppearanceChang
           </div>
           <div className="soil-library-name">
             <strong>{item.code}</strong>
-            <span>{item.passportName || 'Наименование не заполнено'}</span>
+            <SoilNameField key={`${item.key}:${item.passportName}`} item={item} onNameChange={onNameChange} />
             <small>{item.layerCount} слоёв · {item.boreholeCount} скважин · проблем: {item.issueCount}</small>
             {item.variants.length > 1 && <small>Варианты: {item.variants.join(' / ')}</small>}
           </div>

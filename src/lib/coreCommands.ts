@@ -10,7 +10,7 @@ import {
   type CoreLayer,
   type CoreModel
 } from './geologyCore'
-import { getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityItem, type CodeStatus, type GapDecision, type GapDecisionKind, type SoilAppearance, type SoilCharacteristicField, type SoilCharacteristicKey, type SoilHatch } from '@/types/geology'
+import { getHatchSignature, getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityItem, type CodeStatus, type GapDecision, type GapDecisionKind, type SoilAppearance, type SoilCharacteristicField, type SoilCharacteristicKey, type SoilHatch } from '@/types/geology'
 
 function withActivity(
   model: CoreModel,
@@ -529,6 +529,41 @@ export function changeCoreSoilAppearance(
       [key]: { ...previousPassport, appearance }
     }
   }
+}
+
+/** Ручная легенда источника: не меняет ИГЭ слоёв, глубины и подтверждения скважин. */
+export function changeCoreHatchLegend(
+  model: CoreModel,
+  signature: string,
+  igeKey: string,
+  note = '',
+  now = new Date()
+): CoreModel {
+  const source = (model.project.geometry.hatches || []).find(hatch => getHatchSignature(hatch) === signature)
+  if (!source) throw new Error('Сочетание параметров HATCH не найдено в исходном DXF')
+  const key = igeKey.trim() ? getIgeKey(igeKey) : ''
+  const allowedCodes = new Set(model.boreholes.flatMap(borehole => borehole.layers.flatMap(layer =>
+    [layer.igeCode, ...layer.candidates.map(candidate => candidate.code)]
+      .filter(code => code.trim()).map(code => getIgeKey(code)))))
+  if (key && !allowedCodes.has(key)) throw new Error('Для легенды выберите ИГЭ из текстовых кодов текущего профиля')
+  const previous = (model.hatchLegend || []).find(entry => entry.signature === signature)
+  const normalizedNote = note.trim()
+  if (!key && !previous) return model
+  if (previous?.igeKey === key && previous.note === normalizedNote) return model
+  const hatchLegend = (model.hatchLegend || []).filter(entry => entry.signature !== signature)
+  if (key) hatchLegend.push({ signature, igeKey: key, note: normalizedNote, updatedAt: now.toLocaleString('ru-RU') })
+  hatchLegend.sort((a, b) => a.signature.localeCompare(b.signature, 'ru-RU'))
+  const next = withActivity(
+    model,
+    model.boreholes,
+    key
+      ? `HATCH ${source.layer} / ${source.pattern}: вручную связано с ИГЭ ${key}`
+      : `HATCH ${source.layer} / ${source.pattern}: ручная связь с ИГЭ удалена`,
+    now,
+    'manual',
+    { category: 'hatch', passportKeys: key ? [key] : previous ? [previous.igeKey] : [] }
+  )
+  return { ...next, hatchLegend }
 }
 
 function findLayerOwner(model: CoreModel, layerId: string): CoreBorehole | undefined {

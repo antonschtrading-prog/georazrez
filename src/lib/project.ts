@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import { audit } from './geologyEngine'
 import { CORE_ACTIVITY_CATEGORY_LABELS, createCoreModel, createCoreModelFromExtraction, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreJournalEntries, getCoreLayerDepthIssue, getCoreLayerThickness, getCoreInterpolationReviewItems, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreModel } from './geologyCore'
 import { formatPk, getIgeKey, SOIL_CHARACTERISTICS, SOIL_HATCH_LABELS, SOIL_HATCHES, type ActivityCategory, type ActivityItem, type CodeStatus, type GeoProject, type SoilHatch } from '@/types/geology'
+import { getCoreHatchControl } from '@/lib/hatchControl'
 
 const exportStatus: Record<CodeStatus, string> = {
   topology: 'По границам DXF',
@@ -44,7 +45,20 @@ function isValidSoilAppearance(value: unknown): boolean {
     typeof appearance.hatch === 'string' && SOIL_HATCHES.includes(appearance.hatch as SoilHatch)
 }
 
-const ACTIVITY_CATEGORIES: ActivityCategory[] = ['system', 'geology', 'correlation', 'gap', 'fictitious', 'passport', 'review']
+function isValidHatchGeometry(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!Array.isArray(value)) return false
+  return value.every(hatch => hatch && typeof hatch.handle === 'string' && typeof hatch.layer === 'string' &&
+    typeof hatch.pattern === 'string' && typeof hatch.solid === 'boolean' && Number.isFinite(hatch.angle) &&
+    Number.isFinite(hatch.scale) && typeof hatch.color === 'string' && Array.isArray(hatch.issues) &&
+    hatch.issues.every((issue: unknown) => typeof issue === 'string') && Array.isArray(hatch.paths) &&
+    hatch.paths.every((path: any) => path && Number.isFinite(path.pathType) && ['polyline', 'edges'].includes(path.source) &&
+      typeof path.closed === 'boolean' && typeof path.supported === 'boolean' && Array.isArray(path.points) &&
+      path.points.every((point: unknown) => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite)) &&
+      Array.isArray(path.issues) && path.issues.every((issue: unknown) => typeof issue === 'string')))
+}
+
+const ACTIVITY_CATEGORIES: ActivityCategory[] = ['system', 'geology', 'correlation', 'gap', 'fictitious', 'passport', 'review', 'hatch']
 
 function isOptionalStringArray(value: unknown): boolean {
   return value === undefined || Array.isArray(value) && value.every(item => typeof item === 'string')
@@ -449,6 +463,76 @@ export async function exportWorkbook(project: GeoProject) {
   soilLibrary.autoFilter = { from: 'A1', to: 'H1' }
   soilLibrary.views = [{ state: 'frozen', ySplit: 1 }]
 
+  const hatchControl = getCoreHatchControl(coreModel)
+  const hatchLegend = workbook.addWorksheet('Легенда HATCH')
+  hatchLegend.columns = [
+    { header: 'Слой DXF', key: 'layer', width: 28 },
+    { header: 'Pattern', key: 'pattern', width: 30 },
+    { header: 'Тип заливки', key: 'solid', width: 20 },
+    { header: 'Угол, °', key: 'angle', width: 14 },
+    { header: 'Масштаб', key: 'scale', width: 16 },
+    { header: 'Цвет DXF', key: 'color', width: 16 },
+    { header: 'Объектов', key: 'count', width: 14 },
+    { header: 'Пересечений со слоями', key: 'associations', width: 25 },
+    { header: 'ИГЭ по решению инженера', key: 'ige', width: 30 },
+    { header: 'Дата решения', key: 'updatedAt', width: 24 },
+    { header: 'Ключ параметров', key: 'signature', width: 72 }
+  ]
+  for (const item of hatchControl.signatures) {
+    hatchLegend.addRow({
+      layer: item.layer, pattern: item.pattern, solid: item.solid ? 'SOLID' : 'Pattern',
+      angle: item.angle, scale: item.scale, color: item.color, count: item.hatchCount,
+      associations: item.associatedCount, ige: item.legend?.igeKey || '',
+      updatedAt: item.legend?.updatedAt || '', signature: item.signature
+    })
+  }
+  hatchLegend.getRow(1).font = { bold: true }
+  hatchLegend.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  hatchLegend.autoFilter = { from: 'A1', to: 'K1' }
+  hatchLegend.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const hatchSheet = workbook.addWorksheet('Контроль HATCH')
+  hatchSheet.columns = [
+    { header: 'Статус', key: 'status', width: 28 },
+    { header: 'Скважина', key: 'borehole', width: 24 },
+    { header: 'ID скважины', key: 'boreholeId', width: 22 },
+    { header: 'Слой', key: 'ordinal', width: 10 },
+    { header: 'Текстовый ИГЭ', key: 'textCode', width: 18 },
+    { header: 'Статус текстового ИГЭ', key: 'textStatus', width: 27 },
+    { header: 'ИГЭ по легенде HATCH', key: 'hatchCode', width: 27 },
+    { header: 'Слой DXF', key: 'hatchLayer', width: 28 },
+    { header: 'Pattern', key: 'pattern', width: 28 },
+    { header: 'Пересечение, %', key: 'coverage', width: 20 },
+    { header: 'HATCH handle', key: 'handle', width: 18 },
+    { header: 'Ключ параметров', key: 'signature', width: 72 },
+    { header: 'Заключение', key: 'detail', width: 70 }
+  ]
+  const hatchStatusLabels = {
+    match: 'Совпадение', mismatch: 'Несовпадение', unmapped: 'Легенда не задана',
+    'text-unresolved': 'Текстовый ИГЭ не решён'
+  } as const
+  for (const item of hatchControl.checks) {
+    const row = hatchSheet.addRow({
+      status: hatchStatusLabels[item.status], borehole: item.boreholeName, boreholeId: item.boreholeId,
+      ordinal: item.layerOrdinal, textCode: item.textCode, textStatus: exportStatus[item.textStatus],
+      hatchCode: item.hatchCode, hatchLayer: item.hatchLayer, pattern: item.pattern,
+      coverage: item.coverage * 100, handle: item.hatchHandle, signature: item.signature, detail: item.detail
+    })
+    row.getCell(10).numFmt = '0.0'
+  }
+  for (const item of hatchControl.orphans) {
+    hatchSheet.addRow({ status: 'Вне активных слоёв', handle: item.handle, signature: item.signature,
+      detail: 'Замкнутый HATCH не пересёк активные геологические слои; объект не удалён и не использован как доказательство.' })
+  }
+  for (const item of hatchControl.unsupported) {
+    hatchSheet.addRow({ status: 'Контур не разобран', handle: item.handle, signature: item.signature,
+      detail: item.issues.join('; ') })
+  }
+  hatchSheet.getRow(1).font = { bold: true }
+  hatchSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFF0F' } }
+  hatchSheet.autoFilter = { from: 'A1', to: 'M1' }
+  hatchSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
   const characteristics = workbook.addWorksheet('Характеристики ИГЭ')
   characteristics.columns = [
     { header: 'Код ИГЭ', key: 'code', width: 16 },
@@ -638,6 +722,15 @@ export async function readProjectFile(file: File): Promise<GeoProject> {
   catch { throw new Error('Файл не является корректным JSON-проектом') }
   if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.columns) || !parsed.geometry || !Array.isArray(parsed.geometry.segments)) {
     throw new Error('Структура проекта не поддерживается этой версией программы')
+  }
+  if (!isValidHatchGeometry(parsed.geometry.hatches)) {
+    throw new Error('В проекте повреждены исходные контуры HATCH')
+  }
+  if (parsed.hatchLegend !== undefined && (!Array.isArray(parsed.hatchLegend) || parsed.hatchLegend.some(entry =>
+    !entry || typeof entry.signature !== 'string' || !entry.signature || typeof entry.igeKey !== 'string' || !entry.igeKey ||
+    typeof entry.note !== 'string' || typeof entry.updatedAt !== 'string'
+  ))) {
+    throw new Error('В проекте повреждена ручная легенда HATCH')
   }
   if (!Array.isArray(parsed.activity) || parsed.activity.some(item => !isValidActivity(item))) {
     throw new Error('В проекте поврежден журнал инженерных решений')

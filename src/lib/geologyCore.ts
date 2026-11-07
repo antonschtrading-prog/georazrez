@@ -1,5 +1,6 @@
 import {
   getCharacteristicCoverage,
+  getHatchSignature,
   getIgeKey,
   SOIL_HATCHES,
   type ActivityCategory,
@@ -15,6 +16,7 @@ import {
   type GeoSegment,
   type FictitiousInterpolation,
   type GapDecision,
+  type HatchLegendEntry,
   type IgePassport,
   type IssueKind,
   type LayerDepthIssue,
@@ -95,6 +97,7 @@ export interface CoreModel {
   passports: Record<string, CoreIgePassport>
   manualCorrelations: ManualCorrelation[]
   gapDecisions: GapDecision[]
+  hatchLegend?: HatchLegendEntry[]
 }
 
 export interface CoreInterpolationPreviewLayer {
@@ -269,6 +272,7 @@ export type CoreIssueKind =
   | 'duplicate-gap-decision'
   | 'invalid-fictitious-rule'
   | 'invalid-soil-appearance'
+  | 'invalid-hatch-legend'
 
 export interface CoreModelIssue {
   id: string
@@ -330,6 +334,21 @@ export function coreAxisXY(points: number[][], pk: number): [number, number] | [
   const b = axis[index + 1]
   const fraction = (pk - a[0]) / (b[0] - a[0])
   return [a[1] + fraction * (b[1] - a[1]), a[2] + fraction * (b[2] - a[2])]
+}
+
+function cloneCoreGeometry(geometry: GeoProject['geometry']): GeoProject['geometry'] {
+  return {
+    segments: geometry.segments.map(segment => ({ ...segment })),
+    circles: geometry.circles.map(circle => ({ ...circle })),
+    texts: geometry.texts.map(text => ({ ...text })),
+    ...(geometry.hatches ? {
+      hatches: geometry.hatches.map(hatch => ({
+        ...hatch,
+        issues: [...hatch.issues],
+        paths: hatch.paths.map(path => ({ ...path, points: path.points.map(point => [...point]), issues: [...path.issues] }))
+      }))
+    } : {})
+  }
 }
 
 /**
@@ -407,18 +426,15 @@ export function createCoreModelFromExtraction(
       verticalScale,
       startPk: metadata.startPk ?? 0,
       axis: axis.map(point => [...point]),
-      geometry: {
-        segments: segments.map(segment => ({ ...segment })),
-        circles: extraction.geo.circles.map(circle => ({ ...circle })),
-        texts: extraction.geo.texts.map(text => ({ ...text }))
-      },
+      geometry: cloneCoreGeometry({ segments, circles: extraction.geo.circles, texts: extraction.geo.texts, hatches: extraction.geo.hatches }),
       bounds: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) },
       activity: [{ id: `import-${now.getTime()}`, type: 'system', text: 'Проект сформирован локально из DXF и Excel', at: now.toLocaleString('ru-RU') }]
     },
     boreholes,
     passports: {},
     manualCorrelations: [],
-    gapDecisions: []
+    gapDecisions: [],
+    hatchLegend: []
   }
 }
 
@@ -438,11 +454,7 @@ export function createCoreModel(project: GeoProject): CoreModel {
       verticalScale: project.verticalScale,
       startPk: project.startPk,
       axis: project.axis.map(point => [...point]),
-      geometry: {
-        segments: project.geometry.segments.map(segment => ({ ...segment })),
-        circles: project.geometry.circles.map(circle => ({ ...circle })),
-        texts: project.geometry.texts.map(text => ({ ...text }))
-      },
+      geometry: cloneCoreGeometry(project.geometry),
       bounds: { ...project.bounds },
       activity: project.activity.map(item => ({ ...item }))
     },
@@ -496,7 +508,8 @@ export function createCoreModel(project: GeoProject): CoreModel {
       Object.entries(project.igePassports || {}).map(([key, passport]) => [key, clonePassport(key, passport)])
     ),
     manualCorrelations: (project.manualCorrelations || []).map(correlation => ({ ...correlation })),
-    gapDecisions: (project.gapDecisions || []).map(decision => ({ ...decision }))
+    gapDecisions: (project.gapDecisions || []).map(decision => ({ ...decision })),
+    ...(project.hatchLegend ? { hatchLegend: project.hatchLegend.map(entry => ({ ...entry })) } : {})
   }
 }
 
@@ -550,11 +563,7 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
       })),
       excluded: column.excludedLabels.map(label => ({ ...label }))
     })),
-    geometry: {
-      segments: model.project.geometry.segments.map(segment => ({ ...segment })),
-      circles: model.project.geometry.circles.map(circle => ({ ...circle })),
-      texts: model.project.geometry.texts.map(text => ({ ...text }))
-    },
+    geometry: cloneCoreGeometry(model.project.geometry),
     bounds: { ...model.project.bounds },
     igePassports: Object.fromEntries(
       Object.entries(model.passports).map(([key, passport]) => [key, {
@@ -569,6 +578,7 @@ export function createProjectFromCore(model: CoreModel): GeoProject {
     ),
     manualCorrelations: model.manualCorrelations.map(correlation => ({ ...correlation })),
     gapDecisions: model.gapDecisions.map(decision => ({ ...decision })),
+    ...(model.hatchLegend ? { hatchLegend: model.hatchLegend.map(entry => ({ ...entry })) } : {}),
     activity: model.project.activity.map(item => ({ ...item }))
   }
 }
@@ -1121,7 +1131,8 @@ export const CORE_ACTIVITY_CATEGORY_LABELS: Record<ActivityCategory, string> = {
   gap: 'Разрывы и выклинивания',
   fictitious: 'Фиктивные скважины',
   passport: 'Паспорта и характеристики ИГЭ',
-  review: 'Проверка и исключение'
+  review: 'Проверка и исключение',
+  hatch: 'Контроль исходных HATCH'
 }
 
 export interface CoreJournalEntry extends ActivityItem {
@@ -1408,6 +1419,20 @@ export function validateCoreModel(model: CoreModel): CoreModelIssue[] {
     if (passport.appearance && (!/^#[0-9A-Fa-f]{6}$/.test(passport.appearance.color) || !SOIL_HATCHES.includes(passport.appearance.hatch))) {
       add({ kind: 'invalid-soil-appearance', passportKey: key, title: `Некорректное оформление ИГЭ ${key}`, detail: 'Цвет должен быть шестизначным HEX, а штриховка — одним из поддерживаемых условных шаблонов. Геологические данные не изменены.' })
     }
+  }
+
+  const hatchSignatures = new Set((model.project.geometry.hatches || []).map(hatch => getHatchSignature(hatch)))
+  const legendSignatures = new Set<string>()
+  for (const entry of model.hatchLegend || []) {
+    if (legendSignatures.has(entry.signature) || !hatchSignatures.has(entry.signature) ||
+      !entry.igeKey.trim() || entry.igeKey === '__unassigned__' || getIgeKey(entry.igeKey) !== entry.igeKey || !entry.updatedAt.trim()) {
+      add({
+        kind: 'invalid-hatch-legend', passportKey: entry.igeKey,
+        title: 'Некорректная ручная легенда HATCH',
+        detail: 'Связь должна однозначно ссылаться на исходное сочетание параметров HATCH и нормализованный ИГЭ; неизвестные записи не применяются.'
+      })
+    }
+    legendSignatures.add(entry.signature)
   }
 
   const correlationIds = new Set<string>()

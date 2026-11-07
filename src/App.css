@@ -547,6 +547,10 @@
 .soil-library-name { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .soil-library-name strong { color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; }
 .soil-library-name > span { overflow: hidden; text-overflow: ellipsis; color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.soil-name-control { width: 100%; min-width: 0; height: 32px; padding: 0 7px; border: 1px solid var(--line); border-radius: 4px; outline: 0; background: var(--panel-bg); color: var(--ink); font-size: 11px; }
+.soil-name-control::placeholder { color: var(--muted-text); opacity: 1; }
+.soil-name-control:hover { border-color: var(--gray-70); }
+.soil-name-control:focus { border-color: var(--accent-dark); box-shadow: 0 0 0 1px var(--accent-dark); }
 .soil-library-name small { overflow-wrap: anywhere; color: var(--muted-text); font-size: 9px; line-height: 1.35; }
 .soil-color-control { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .soil-color-control input { width: 34px; height: 34px; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-bg); cursor: pointer; }
@@ -880,4 +884,59 @@
   .gost-trace-title > span { display: block; margin-top: 3px; text-align: left; }
   .gost-reference-intro { display: block; }
   .gost-reference-intro > span { display: block; margin-top: 8px; }
+}
+
+
+/* Двухпризнаковый контроль исходных DXF HATCH. */
+.hatch-warning-button { color: var(--danger); }
+.hatch-control-dialog { width: min(1100px, calc(100vw - 32px)); max-width: 1100px !important; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; background: var(--panel-bg); border-color: var(--line); color: var(--ink); }
+.hatch-control-dialog [data-slot="dialog-description"] { max-width: 900px; color: var(--muted-text); line-height: 1.5; }
+.hatch-empty { padding: 24px 0; color: var(--muted-text); font-size: 12px; line-height: 1.6; }
+.hatch-summary { flex: none; display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted-text); font-size: 10px; }
+.hatch-summary strong { margin-right: 3px; color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; }
+.hatch-summary .hatch-ok, .hatch-summary .hatch-ok strong { color: var(--success); }
+.hatch-summary .hatch-bad, .hatch-summary .hatch-bad strong { color: var(--danger); }
+.hatch-tabs { flex: none; display: flex; gap: 4px; margin: 10px 0; }
+.hatch-tabs button { min-height: 36px; padding: 0 13px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--muted-text); font-size: 10px; cursor: pointer; }
+.hatch-tabs button:hover { background: var(--gray-90); color: var(--ink); }
+.hatch-tabs button.active { border-color: var(--accent-dark); background: var(--accent-lime); color: var(--ink); }
+.hatch-legend-list, .hatch-check-list { min-height: 0; overflow-y: auto; border: 1px solid var(--line); scrollbar-width: thin; }
+.hatch-legend-list { flex: 1; }
+.hatch-legend-head, .hatch-legend-row { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; align-items: center; }
+.hatch-legend-head { min-height: 31px; padding: 0 12px; background: var(--gray-90); color: var(--muted-text); font-size: 9px; }
+.hatch-legend-row { min-height: 76px; padding: 10px 12px; border-top: 1px solid var(--gray-90); }
+.hatch-signature-name { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hatch-signature-name strong { overflow-wrap: anywhere; font-size: 11px; font-weight: 600; }
+.hatch-signature-name span { overflow-wrap: anywhere; color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; font-size: 9px; line-height: 1.45; }
+.hatch-signature-name small { color: var(--muted-text); font-size: 9px; }
+.hatch-legend-row select, .hatch-checks-toolbar select { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-bg); color: var(--ink); font-size: 10px; }
+.hatch-legend-row select:focus, .hatch-checks-toolbar select:focus { outline: 0; border-color: var(--accent-dark); box-shadow: 0 0 0 1px var(--accent-dark); }
+.hatch-checks-panel { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.hatch-checks-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; color: var(--muted-text); font-size: 9px; }
+.hatch-checks-toolbar label { display: flex; align-items: center; gap: 7px; }
+.hatch-checks-toolbar select { width: 180px; }
+.hatch-check-list { flex: 1; }
+.hatch-check-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 88px; gap: 12px; align-items: center; min-height: 82px; padding: 10px 12px; border-bottom: 1px solid var(--gray-90); }
+.hatch-check-row:last-child { border-bottom: 0; }
+.hatch-check-row.unsupported, .hatch-check-row.orphan { grid-template-columns: 150px minmax(0, 1fr); }
+.hatch-status { display: inline-flex; align-items: center; gap: 6px; color: var(--warning); font-size: 10px; line-height: 1.35; }
+.hatch-check-row.match .hatch-status { color: var(--success); }
+.hatch-check-row.mismatch .hatch-status { color: var(--danger); }
+.hatch-check-description, .hatch-check-row > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hatch-check-row strong { font-size: 11px; font-weight: 600; }
+.hatch-check-row div > span { color: var(--ink-soft); font-size: 10px; }
+.hatch-check-row small { overflow-wrap: anywhere; color: var(--muted-text); font-size: 9px; line-height: 1.45; }
+
+@media (max-width: 699px) {
+  .hatch-control-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); padding: 18px 12px; }
+  .hatch-summary { gap: 7px 12px; }
+  .hatch-tabs button { flex: 1; min-height: 44px; padding: 0 7px; }
+  .hatch-legend-head { display: none; }
+  .hatch-legend-row { grid-template-columns: 1fr; gap: 9px; padding: 12px 9px; }
+  .hatch-legend-row select { height: 44px; }
+  .hatch-checks-toolbar { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .hatch-checks-toolbar label { width: 100%; }
+  .hatch-checks-toolbar select { flex: 1; height: 44px; }
+  .hatch-check-row, .hatch-check-row.unsupported, .hatch-check-row.orphan { grid-template-columns: 1fr; gap: 7px; padding: 12px 9px; }
+  .hatch-check-row .soil-layer-link { min-height: 44px; }
 }

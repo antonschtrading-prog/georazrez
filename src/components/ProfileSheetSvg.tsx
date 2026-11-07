@@ -15,6 +15,16 @@ interface Props {
   className?: string
 }
 
+function getProfileLegendNameLines(value: string): string[] {
+  const text = value.trim() || 'Наименование не заполнено'
+  if (text.length <= 26) return [text]
+  const wordBreak = text.lastIndexOf(' ', 26)
+  const firstBreak = wordBreak >= 12 ? wordBreak : 26
+  const first = text.slice(0, firstBreak).trim()
+  const rest = text.slice(firstBreak).trim()
+  return [first, rest.length > 26 ? `${rest.slice(0, 25).trimEnd()}…` : rest]
+}
+
 /** Один лист A3 landscape в условных единицах SVG; вся геометрия уже вычислена Core-проекцией. */
 export function ProfileSheetSvg({ profile, sheet, className = '' }: Props) {
   const baseId = `profile-${useId().replace(/:/g, '')}`
@@ -90,18 +100,22 @@ export function ProfileSheetSvg({ profile, sheet, className = '' }: Props) {
         const x = 60 + column * 225
         const y = 946 + row * 78
         const patternId = `${baseId}-legend-${index}`
+        const nameLines = getProfileLegendNameLines(item.name)
         return <g key={item.key} data-legend-code={item.key}>
+          <title>{item.name || 'Наименование не заполнено'}</title>
           <rect x={x} y={y} width="64" height="42" fill={item.appearance.color} stroke="#777B70" strokeWidth="0.8" />
           {item.appearance.hatch !== 'none' && <rect x={x} y={y} width="64" height="42" fill={`url(#${patternId})`} stroke="#777B70" strokeWidth="0.8" />}
           <text x={x + 74} y={y + 17} fontSize="14" fontWeight="600" fill="#24261F">ИГЭ {item.code}</text>
-          <text x={x + 74} y={y + 35} fontSize="10" fill="#62665B">{(item.name || 'Наименование не заполнено').slice(0, 26)}</text>
+          <text x={x + 74} y={y + (nameLines.length > 1 ? 30 : 35)} fontSize="10" fill="#62665B">
+            {nameLines.map((line, lineIndex) => <tspan key={lineIndex} x={x + 74} dy={lineIndex ? 12 : 0}>{line}</tspan>)}
+          </text>
         </g>
       })}
     </g>
 
     <g fill="#62665B" fontSize="11">
       <text x="60" y="1138">Геология: {sheet.unfilledIntervals} интервалов без полной геометрии заливки · {sheet.unresolvedBands} участков без согласованного ИГЭ. Открытые разрывы не дорисовываются.</text>
-      <text x="1620" y="1138" textAnchor="end">ГеоРазрез 0.46.1 · производный профиль, исходный DXF не изменён</text>
+      <text x="1620" y="1138" textAnchor="end">ГеоРазрез 0.47 · производный профиль, исходный DXF не изменён</text>
       <text x="60" y="1162">Глубины подошв указаны в метрах. ПК — по сохранённой оси проекта. Фиктивные скважины показаны синим пунктиром.</text>
     </g>
   </svg>

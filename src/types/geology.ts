@@ -99,7 +99,48 @@ export interface GeoCircle {
   handle?: string
 }
 
-export type ActivityCategory = 'system' | 'geology' | 'correlation' | 'gap' | 'fictitious' | 'passport' | 'review'
+export interface GeoHatchPath {
+  pathType: number
+  source: 'polyline' | 'edges'
+  closed: boolean
+  supported: boolean
+  points: Array<[number, number]>
+  issues: string[]
+}
+
+/** Исходная штриховка DXF: контуры сохраняются раздельно, включая острова. */
+export interface GeoHatch {
+  handle: string
+  layer: string
+  pattern: string
+  solid: boolean
+  angle: number
+  scale: number
+  color: string
+  paths: GeoHatchPath[]
+  issues: string[]
+}
+
+/** Решение инженера для конкретного сочетания параметров HATCH в этом профиле. */
+export interface HatchLegendEntry {
+  signature: string
+  igeKey: string
+  note: string
+  updatedAt: string
+}
+
+export function getHatchSignature(hatch: Pick<GeoHatch, 'layer' | 'pattern' | 'solid' | 'angle' | 'scale' | 'color'>): string {
+  return [
+    hatch.layer.trim().toLocaleUpperCase('ru-RU'),
+    hatch.pattern.trim().toLocaleUpperCase('ru-RU'),
+    hatch.solid ? 'SOLID' : 'PATTERN',
+    Number.isFinite(hatch.angle) ? hatch.angle.toFixed(4) : '',
+    Number.isFinite(hatch.scale) ? hatch.scale.toFixed(4) : '',
+    hatch.color || ''
+  ].join('|')
+}
+
+export type ActivityCategory = 'system' | 'geology' | 'correlation' | 'gap' | 'fictitious' | 'passport' | 'review' | 'hatch'
 
 export interface ActivityItem {
   id: string
@@ -198,9 +239,11 @@ export interface GeoProject {
     segments: GeoSegment[]
     circles: GeoCircle[]
     texts: GeoText[]
+    hatches?: GeoHatch[]
   }
   bounds: { minX: number; maxX: number; minY: number; maxY: number }
   igePassports?: Record<string, IgePassport>
+  hatchLegend?: HatchLegendEntry[]
   manualCorrelations?: ManualCorrelation[]
   gapDecisions?: GapDecision[]
   activity: ActivityItem[]

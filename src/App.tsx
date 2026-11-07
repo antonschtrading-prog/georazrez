@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, MapPin, Palette, PanelRight, Plus, Printer, Redo2, Save, Tags, Undo2 } from 'lucide-react'
+import { BookOpen, ChevronDown, Download, FileJson, FileSpreadsheet, FolderInput, HardDrive, Layers3, List, ListChecks, MapPin, Palette, PanelRight, Plus, Printer, Redo2, Save, Tags, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoreholeList } from '@/components/BoreholeList'
 import { Inspector } from '@/components/Inspector'
@@ -9,13 +9,15 @@ import { ProfileCanvas } from '@/components/ProfileCanvas'
 import { ProfileDocumentDialog } from '@/components/ProfileDocumentDialog'
 import { SoilLibraryDialog } from '@/components/SoilLibraryDialog'
 import { GostClassificationDialog } from '@/components/GostClassificationDialog'
+import { HatchControlDialog } from '@/components/HatchControlDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { createCoreFromFiles, exportProjectFile, exportWorkbook, readCoreProjectFile } from '@/lib/project'
 import { loadStoredProject, storeProject } from '@/lib/storage'
 import { createCoreModel, createProjectFromCore, getCoreBoreholeBoundaryIssues, getCoreBoundaryModel, getCoreCodeSummary, getCoreFictitiousPreview, getCoreIssues, getCoreJournalEntries, getCoreLayerNeighbors, getCoreModelStats, getCoreSectionReport, getCoreSoilLibrary, validateCoreModel, type CoreBoundaryItem, type CoreJournalEntry, type CoreModel, type CoreReviewItem } from '@/lib/geologyCore'
 import { buildCoreProfileDocument } from '@/lib/profileDocument'
-import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, changeCoreSoilAppearance, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, reviewAllEligibleCoreBoreholes, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation, type CoreSoilAppearanceField } from '@/lib/coreCommands'
+import { addCoreActivity, addCoreFictitiousBorehole, addCoreGapDecision, addCoreLayer, addCoreManualCorrelation, changeCoreCharacteristic, changeCoreHatchLegend, changeCoreLayerCode, changeCoreLayerDepth, changeCorePassport, changeCoreSoilAppearance, deleteCoreLayer, removeCoreFictitiousBorehole, removeCoreGapDecision, removeCoreManualCorrelation, renameCoreBorehole, reviewAllEligibleCoreBoreholes, setCoreBoreholeIncluded, setCoreBoreholeReviewed, updateCoreFictitiousBorehole, updateCoreGapDecision, updateCoreManualCorrelation, type CoreSoilAppearanceField } from '@/lib/coreCommands'
+import { getCoreHatchCodeOptions, getCoreHatchControl, type CoreHatchCheck } from '@/lib/hatchControl'
 import { getIgeKey, type CodeStatus, type CodeSummaryItem, type GapDecision, type GapDecisionKind, type GeoProject, type LayerNeighbors, type SoilCharacteristicField, type SoilCharacteristicKey } from '@/types/geology'
 import './App.css'
 
@@ -37,6 +39,7 @@ export default function App() {
   const [geometryMode, setGeometryMode] = useState<'source' | 'verified'>('verified')
   const [importOpen, setImportOpen] = useState(false)
   const [soilLibraryOpen, setSoilLibraryOpen] = useState(false)
+  const [hatchControlOpen, setHatchControlOpen] = useState(false)
   const [gostOpen, setGostOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saved')
@@ -103,6 +106,8 @@ export default function App() {
   const journalEntries = useMemo(() => coreModel ? getCoreJournalEntries(coreModel) : [], [coreModel])
   const codeSummary = useMemo(() => coreModel ? getCoreCodeSummary(coreModel) : [], [coreModel])
   const soilLibrary = useMemo(() => coreModel ? getCoreSoilLibrary(coreModel) : [], [coreModel])
+  const hatchControl = useMemo(() => coreModel ? getCoreHatchControl(coreModel) : null, [coreModel])
+  const hatchCodeOptions = useMemo(() => coreModel ? getCoreHatchCodeOptions(coreModel) : [], [coreModel])
   const profileDocument = useMemo(() => coreModel && boundaries ? buildCoreProfileDocument(coreModel, boundaries) : null, [coreModel, boundaries])
   const coreReport = useMemo(() => coreModel ? {
     stats: getCoreModelStats(coreModel),
@@ -509,6 +514,19 @@ export default function App() {
     commitCore(current => changeCoreSoilAppearance(current, code, field, value))
   }
 
+  const changeHatchLegend = (signature: string, igeKey: string) => {
+    if (commitCore(current => changeCoreHatchLegend(current, signature, igeKey))) {
+      toast.success(igeKey ? `Легенда HATCH связана с ИГЭ ${igeKey}` : 'Связь легенды HATCH удалена', {
+        description: 'Текстовые коды, глубины и подтверждения скважин не изменены.'
+      })
+    }
+  }
+
+  const selectHatchCheck = (check: CoreHatchCheck) => {
+    selectLayerLocation(check.boreholeId, check.layerId)
+    setHatchControlOpen(false)
+  }
+
   const changeCharacteristic = (
     code: string,
     property: SoilCharacteristicKey,
@@ -667,6 +685,7 @@ export default function App() {
               <button type="button" className={showLabels ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowLabels(value => !value)} aria-pressed={showLabels}><Tags size={15} /> Подписи</button>
               <button type="button" className={showCodes ? 'toggle-button active' : 'toggle-button'} onClick={() => setShowCodes(value => !value)} aria-pressed={showCodes}><Layers3 size={15} /> ИГЭ</button>
               <button type="button" className="toggle-button" onClick={() => setSoilLibraryOpen(true)}><Palette size={15} /> Грунты</button>
+              {hatchControl?.available && <button type="button" className={hatchControl.summary.mismatches ? 'toggle-button hatch-warning-button' : 'toggle-button'} onClick={() => setHatchControlOpen(true)} title="Сравнение текстовых ИГЭ с исходными HATCH по геометрическому пересечению"><ListChecks size={15} /> HATCH{hatchControl.summary.tasks ? ` · ${hatchControl.summary.tasks}` : ''}</button>}
               <button type="button" className="toggle-button" onClick={() => setGostOpen(true)}><BookOpen size={15} /> ГОСТ</button>
               <button type="button" className="toggle-button" onClick={() => setProfileOpen(true)}><Printer size={15} /> Профиль</button>
               <button type="button" className={fictitiousPickMode ? 'toggle-button active' : 'toggle-button'} onClick={fictitiousPickMode ? () => setFictitiousPickMode(false) : startFictitiousPick} aria-pressed={fictitiousPickMode}><Plus size={15} /> {fictitiousPickMode ? 'Отменить выбор' : 'Фиктивная'}</button>
@@ -689,8 +708,8 @@ export default function App() {
 
       <footer className="app-statusbar">
         <span><span className={`status-dot ${saveState === 'error' ? 'danger' : 'success'}`} /> Локальный проект · данные только в этом браузере</span>
-        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.46.1 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
-        <span>Прототип 0.46.1</span>
+        <span title="Геометрия, топологические статусы, соседи и сводка ИГЭ рассчитываются из канонической модели">Ядро 0.47 · {coreReport?.stats.boreholes || 0} скважин · {coreReport?.stats.layers || 0} слоёв · структурных ошибок: {coreReport?.issues.length || 0}</span>
+        <span>Прототип 0.47</span>
       </footer>
       <Dialog open={Boolean(correlationBoundary)} onOpenChange={open => { if (!open) setCorrelationBoundary(null) }}>
         <DialogContent className="exclude-dialog">
@@ -842,7 +861,8 @@ export default function App() {
         </DialogContent>
       </Dialog>
       {profileDocument && <ProfileDocumentDialog open={profileOpen} profile={profileDocument} verified={allReviewed} onOpenChange={setProfileOpen} />}
-      <SoilLibraryDialog open={soilLibraryOpen} items={soilLibrary} onOpenChange={setSoilLibraryOpen} onAppearanceChange={changeSoilAppearance} onSelect={item => { selectCodeSummary(item); setSoilLibraryOpen(false) }} />
+      <SoilLibraryDialog open={soilLibraryOpen} items={soilLibrary} onOpenChange={setSoilLibraryOpen} onAppearanceChange={changeSoilAppearance} onNameChange={(code, value) => changePassport(code, 'name', value)} onSelect={item => { selectCodeSummary(item); setSoilLibraryOpen(false) }} />
+      {hatchControl && <HatchControlDialog open={hatchControlOpen} control={hatchControl} codeOptions={hatchCodeOptions} onOpenChange={setHatchControlOpen} onLegendChange={changeHatchLegend} onSelect={selectHatchCheck} />}
       <GostClassificationDialog open={gostOpen} onOpenChange={setGostOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={importProject} onOpenProject={openSavedProject} />
     </div>

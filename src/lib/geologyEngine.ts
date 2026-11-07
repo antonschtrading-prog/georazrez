@@ -12,9 +12,90 @@ const num = v => Number(String(v ?? '').trim().replace(',', '.'));
 const finite = (...v) => v.every(Number.isFinite);
 const close = (a, b, eps) => Math.abs(a - b) <= eps;
 
+/* Структурный разбор HATCH. Полилинии и LINE edge paths сохраняются как отдельные
+ * контуры; неподдержанные кривые не заменяются хордами и остаются видимой ошибкой разбора.
+ */
+function readHatchEntity(entity) {
+  const g = entity.g, pairs = entity.pairs;
+  const hatch = {
+    handle: g[5] || '', layer: g[8] || '', pattern: g[2] || '',
+    solid: num(g[70]) === 1, angle: num(g[52]) || 0,
+    scale: Number.isFinite(num(g[41])) ? num(g[41]) : 1,
+    color: g[420] || g[62] || '', paths: [], issues: []
+  };
+  let path = null, edge = null, vertex = null;
+  for (const [code, value] of pairs) {
+    // После boundary paths идут pattern lines и seed points; их 10/20 не относятся к контуру.
+    if (path && (code === '53' || code === '98')) { path = null; edge = null; vertex = null; continue; }
+    if (code === '92') {
+      const pathType = num(value);
+      path = { pathType, source: (pathType & 2) ? 'polyline' : 'edges', closed: false,
+        supported: true, points: [], issues: [], vertices: [], edges: [] };
+      hatch.paths.push(path); edge = null; vertex = null;
+      continue;
+    }
+    if (!path) continue;
+    if (path.source === 'polyline') {
+      if (code === '73') path.closed = num(value) === 1;
+      else if (code === '10') { vertex = { x: num(value), y: NaN, bulge: 0 }; path.vertices.push(vertex); }
+      else if (code === '20' && vertex) vertex.y = num(value);
+      else if (code === '42' && vertex) vertex.bulge = num(value) || 0;
+    } else {
+      if (code === '72') {
+        edge = { type: num(value), start: [NaN, NaN], end: [NaN, NaN] };
+        path.edges.push(edge);
+      } else if (edge && edge.type === 1) {
+        if (code === '10') edge.start[0] = num(value);
+        else if (code === '20') edge.start[1] = num(value);
+        else if (code === '11') edge.end[0] = num(value);
+        else if (code === '21') edge.end[1] = num(value);
+      }
+    }
+  }
+  for (const p of hatch.paths) {
+    if (p.source === 'polyline') {
+      if (p.vertices.some(v => !finite(v.x, v.y))) p.issues.push('В polyline path есть неполная вершина');
+      if (p.vertices.some(v => Math.abs(v.bulge) > 1e-9)) p.issues.push('Дуговые сегменты polyline path требуют отдельного разбора');
+      p.points = p.vertices.filter(v => finite(v.x, v.y)).map(v => [v.x, v.y]);
+    } else {
+      const unsupported = [...new Set(p.edges.filter(e => e.type !== 1).map(e => `DXF edge type ${e.type}`))];
+      if (unsupported.length) p.issues.push(`Неподдержанные кривые: ${unsupported.join(', ')}`);
+      const lines = p.edges.filter(e => e.type === 1 && finite(...e.start, ...e.end));
+      if (lines.length !== p.edges.length) p.issues.push('Не все рёбра edge path являются корректными LINE');
+      const unused = lines.slice(), points = [];
+      if (unused.length) {
+        const first = unused.shift();
+        points.push([...first.start], [...first.end]);
+        while (unused.length) {
+          const end = points[points.length - 1];
+          const index = unused.findIndex(e => close(e.start[0], end[0], 1e-6) && close(e.start[1], end[1], 1e-6) ||
+            close(e.end[0], end[0], 1e-6) && close(e.end[1], end[1], 1e-6));
+          if (index < 0) break;
+          const next = unused.splice(index, 1)[0];
+          const forward = close(next.start[0], end[0], 1e-6) && close(next.start[1], end[1], 1e-6);
+          points.push([...(forward ? next.end : next.start)]);
+        }
+      }
+      if (unused.length) p.issues.push('LINE edge path разорван: не все рёбра образуют один контур');
+      p.points = points;
+      p.closed = points.length > 3 && close(points[0][0], points[points.length - 1][0], 1e-6) &&
+        close(points[0][1], points[points.length - 1][1], 1e-6);
+    }
+    if (p.points.length > 1 && close(p.points[0][0], p.points[p.points.length - 1][0], 1e-6) &&
+      close(p.points[0][1], p.points[p.points.length - 1][1], 1e-6)) p.points.pop();
+    if (p.points.length < 3) p.issues.push('Контур содержит меньше трёх вершин');
+    if (!p.closed) p.issues.push('Контур HATCH не замкнут');
+    p.supported = p.issues.length === 0;
+    delete p.vertices; delete p.edges;
+    hatch.issues.push(...p.issues);
+  }
+  if (!hatch.paths.length) hatch.issues.push('HATCH не содержит boundary paths');
+  return hatch;
+}
+
 function parseDXF(content) {
   const lines = content.replace(/\r/g, '').split('\n');
-  const out = { texts: [], circles: [], segments: [] };
+  const out = { texts: [], circles: [], segments: [], hatches: [] };
   let entity = null, section = null, expectSection = false;
 
   function flush() {
@@ -34,6 +115,8 @@ function parseDXF(content) {
       if ((Number(g[70] || 0) & 1) && v.length > 2) {
         out.segments.push({ x1: v[v.length - 1][0], y1: v[v.length - 1][1], x2: v[0][0], y2: v[0][1], layer: g[8] || '', handle: g[5] || '' });
       }
+    } else if (entity.type === 'HATCH') {
+      out.hatches.push(readHatchEntity(entity));
     }
     entity = null;
   }
@@ -44,8 +127,8 @@ function parseDXF(content) {
       flush();
       if (value === 'SECTION') expectSection = true;
       else if (value === 'ENDSEC') section = null;
-      else if (section === 'ENTITIES' && ['TEXT', 'CIRCLE', 'LINE', 'LWPOLYLINE'].includes(value)) {
-        entity = { type: value, g: {}, vertices: [] };
+      else if (section === 'ENTITIES' && ['TEXT', 'CIRCLE', 'LINE', 'LWPOLYLINE', 'HATCH'].includes(value)) {
+        entity = { type: value, g: {}, vertices: [], pairs: [] };
       }
       continue;
     }
@@ -55,6 +138,7 @@ function parseDXF(content) {
       continue;
     }
     if (!entity) continue;
+    entity.pairs.push([code, value]);
     if (entity.type === 'LWPOLYLINE' && code === '10') {
       entity.vertices.push([num(value), NaN]);
       continue;
